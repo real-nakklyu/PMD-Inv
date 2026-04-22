@@ -35,6 +35,29 @@ class EquipmentRepository(SupabaseRepository):
         response = query.order("created_at", desc=True).range(offset, offset + limit - 1).execute()
         return response.data or []
 
+    def list_filtered_page(
+        self,
+        *,
+        search: str | None = None,
+        status_value: str | None = None,
+        region: str | None = None,
+        equipment_type: str | None = None,
+        limit: int = 25,
+        offset: int = 0,
+    ) -> dict[str, Any]:
+        query = self.table.select("*", count="exact").is_("archived_at", "null")
+        if status_value:
+            query = query.eq("status", status_value)
+        if region:
+            query = query.eq("region", region)
+        if equipment_type:
+            query = query.eq("equipment_type", equipment_type)
+        if search:
+            pattern = f"%{search}%"
+            query = query.or_(f"serial_number.ilike.{pattern},make.ilike.{pattern},model.ilike.{pattern}")
+        response = query.order("created_at", desc=True).range(offset, offset + limit - 1).execute()
+        return {"items": response.data or [], "total": response.count or 0, "limit": limit, "offset": offset}
+
     def ensure_serial_available(self, serial_number: str, *, exclude_id: str | None = None) -> None:
         query = self.table.select("id").ilike("serial_number", serial_number).is_("archived_at", "null")
         if exclude_id:

@@ -1,15 +1,27 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import Link from "next/link";
+import dynamic from "next/dynamic";
+import { AlertTriangle, CheckCircle2 } from "lucide-react";
 
+import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
+import { CardGridSkeleton, ListSkeleton, Skeleton } from "@/components/ui/skeleton";
 import { apiGet } from "@/lib/api";
 import { humanize } from "@/lib/utils";
-import { equipmentTypes, floridaRegions, type DashboardSummary, type Equipment } from "@/types/domain";
+import { equipmentTypes, floridaRegions, type DashboardSummary, type Equipment, type NotificationsResponse } from "@/types/domain";
 
-const chartColors = ["#0f766e", "#2563eb", "#d97706", "#be123c", "#6d28d9", "#475569"];
+const RegionBarChart = dynamic(() => import("@/features/dashboard/dashboard-charts").then((module) => module.RegionBarChart), {
+  ssr: false,
+  loading: () => <Skeleton className="h-full w-full" />
+});
+const TypePieChart = dynamic(() => import("@/features/dashboard/dashboard-charts").then((module) => module.TypePieChart), {
+  ssr: false,
+  loading: () => <Skeleton className="h-full w-full" />
+});
+
 const emptyDashboard: DashboardSummary = {
   total_equipment: 0,
   available: 0,
@@ -31,6 +43,8 @@ const emptyDashboard: DashboardSummary = {
 export function DashboardClient() {
   const [summary, setSummary] = useState<DashboardSummary>(emptyDashboard);
   const [equipment, setEquipment] = useState<Equipment[]>([]);
+  const [attention, setAttention] = useState<NotificationsResponse | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -39,8 +53,9 @@ export function DashboardClient() {
       setError(null);
     }).catch((reason) => {
       setError(reason instanceof Error ? reason.message : "Unable to load dashboard data.");
-    });
+    }).finally(() => setIsLoading(false));
     apiGet<Equipment[]>("/equipment?limit=1000").then(setEquipment).catch(() => undefined);
+    apiGet<NotificationsResponse>("/notifications").then(setAttention).catch(() => undefined);
   }, []);
 
   const cards = [
@@ -60,32 +75,27 @@ export function DashboardClient() {
     <>
       <PageHeader title="Dashboard" description="Operational health across Florida power wheelchair and scooter inventory." />
       {error ? <LoadError message={error} /> : null}
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      {isLoading ? <CardGridSkeleton cards={8} /> : <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {cards.map(([label, value]) => <StatCard key={label} label={String(label)} value={Number(value)} />)}
+      </div>}
+      <div className="mt-5 grid gap-5 xl:grid-cols-[0.9fr_1.1fr]">
+        <AttentionQueue attention={attention} isLoading={isLoading} />
+        <Card>
+          <CardHeader>
+            <CardTitle>Regional Availability</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <AvailabilityMatrix equipment={equipment} />
+          </CardContent>
+        </Card>
       </div>
-      <Card className="mt-5">
-        <CardHeader>
-          <CardTitle>Regional Availability</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <AvailabilityMatrix equipment={equipment} />
-        </CardContent>
-      </Card>
       <div className="mt-5 grid gap-5 xl:grid-cols-[1.35fr_0.65fr]">
         <Card>
           <CardHeader>
             <CardTitle>Equipment By Region</CardTitle>
           </CardHeader>
           <CardContent className="h-80">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={summary.equipment_by_region}>
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                <XAxis dataKey="region" tick={{ fill: "var(--muted-foreground)", fontSize: 12 }} />
-                <YAxis allowDecimals={false} tick={{ fill: "var(--muted-foreground)", fontSize: 12 }} />
-                <Tooltip />
-                <Bar dataKey="count" fill="#0f766e" radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
+            {isLoading ? <Skeleton className="h-full w-full" /> : <RegionBarChart summary={summary} />}
           </CardContent>
         </Card>
         <Card>
@@ -93,16 +103,7 @@ export function DashboardClient() {
             <CardTitle>Equipment By Type</CardTitle>
           </CardHeader>
           <CardContent className="h-80">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie data={summary.equipment_by_type} dataKey="count" nameKey="type" outerRadius={98} label={(item) => humanize(String(item.type))}>
-                  {summary.equipment_by_type.map((entry, index) => (
-                    <Cell key={entry.type} fill={chartColors[index % chartColors.length]} />
-                  ))}
-                </Pie>
-                <Tooltip formatter={(value, name) => [value, humanize(String(name))]} />
-              </PieChart>
-            </ResponsiveContainer>
+            {isLoading ? <Skeleton className="h-full w-full" /> : <TypePieChart summary={summary} />}
           </CardContent>
         </Card>
       </div>
@@ -111,7 +112,7 @@ export function DashboardClient() {
           <CardTitle>Recent Activity</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
-          {summary.recent_activity.length ? summary.recent_activity.map((item) => (
+          {isLoading ? <ListSkeleton rows={4} /> : summary.recent_activity.length ? summary.recent_activity.map((item) => (
             <div key={item.id} className="flex items-start justify-between gap-3 border-b border-border pb-3 last:border-0 last:pb-0">
               <div>
                 <div className="text-sm font-medium">{item.message}</div>
@@ -123,6 +124,41 @@ export function DashboardClient() {
         </CardContent>
       </Card>
     </>
+  );
+}
+
+function AttentionQueue({ attention, isLoading }: { attention: NotificationsResponse | null; isLoading: boolean }) {
+  const items = attention?.items.slice(0, 5) ?? [];
+  const critical = attention?.counts.critical ?? 0;
+  const warning = attention?.counts.warning ?? 0;
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between gap-3">
+          <CardTitle>Needs Attention</CardTitle>
+          {critical || warning ? <Badge>{critical} critical / {warning} warning</Badge> : null}
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {isLoading ? <ListSkeleton rows={4} /> : items.length ? items.map((item) => (
+          <Link key={item.id} href={item.href} className="flex gap-3 rounded-md border border-border bg-card p-3 transition hover:border-primary/40 hover:bg-primary/5 active:translate-y-px">
+            <span className={item.severity === "critical" ? "text-red-600 dark:text-red-300" : "text-amber-600 dark:text-amber-300"}>
+              <AlertTriangle className="mt-0.5 h-4 w-4" />
+            </span>
+            <span className="min-w-0">
+              <span className="block text-sm font-semibold">{item.title}</span>
+              <span className="mt-1 block text-sm text-muted-foreground">{item.message}</span>
+            </span>
+          </Link>
+        )) : (
+          <div className="flex items-center gap-3 rounded-md border border-emerald-300 bg-emerald-50 p-4 text-sm text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-200">
+            <CheckCircle2 className="h-4 w-4" />
+            Nothing needs attention right now.
+          </div>
+        )}
+        <Link className="inline-flex text-sm font-semibold text-primary hover:underline" href="/notifications">Open all notifications</Link>
+      </CardContent>
+    </Card>
   );
 }
 

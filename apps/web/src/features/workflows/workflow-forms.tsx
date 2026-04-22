@@ -11,7 +11,8 @@ import { AttachmentUploader } from "@/components/storage/attachment-uploader";
 import { AsyncSearchPicker, type SearchPickerOption } from "@/components/ui/async-search-picker";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input, Select, Textarea } from "@/components/ui/input";
+import { Checkbox, Input, Select, Textarea } from "@/components/ui/input";
+import { useToast } from "@/components/ui/toast";
 import { apiGet, apiSend } from "@/lib/api";
 import { humanize } from "@/lib/utils";
 import {
@@ -34,6 +35,7 @@ const patientSchema = z.object({
 
 export function PatientForm({ onSaved }: { onSaved?: () => void }) {
   const [message, setMessage] = useState<string | null>(null);
+  const { toast } = useToast();
   const form = useForm<z.infer<typeof patientSchema>>({
     resolver: zodResolver(patientSchema),
     defaultValues: { full_name: "", date_of_birth: "", region: "Tampa" }
@@ -45,9 +47,12 @@ export function PatientForm({ onSaved }: { onSaved?: () => void }) {
       await apiSend("/patients", "POST", values);
       form.reset();
       setMessage("Patient created.");
+      toast({ kind: "success", title: "Patient created", description: values.full_name });
       onSaved?.();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Unable to create patient.");
+      const description = error instanceof Error ? error.message : "Unable to create patient.";
+      setMessage(description);
+      toast({ kind: "error", title: "Could not create patient", description });
     }
   }
 
@@ -60,7 +65,7 @@ export function PatientForm({ onSaved }: { onSaved?: () => void }) {
         <form className="space-y-3" onSubmit={form.handleSubmit(onSubmit)}>
           <Input placeholder="Full name" {...form.register("full_name")} />
           <Input type="date" {...form.register("date_of_birth")} />
-          <Select {...form.register("region")}>
+          <Select defaultValue="Tampa" {...form.register("region")}>
             {floridaRegions.map((region) => <option key={region}>{region}</option>)}
           </Select>
           {message ? <p className="text-xs text-muted-foreground">{message}</p> : null}
@@ -82,6 +87,7 @@ export function AssignmentForm({ onSaved }: { onSaved?: () => void }) {
   const [selectedEquipment, setSelectedEquipment] = useState<SearchPickerOption | null>(null);
   const [selectedPatient, setSelectedPatient] = useState<SearchPickerOption | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const { toast } = useToast();
   const form = useForm<z.infer<typeof assignmentSchema>>({
     resolver: zodResolver(assignmentSchema),
     defaultValues: { equipment_id: "", patient_id: "", region: "Tampa", notes: "" }
@@ -95,9 +101,12 @@ export function AssignmentForm({ onSaved }: { onSaved?: () => void }) {
       setSelectedEquipment(null);
       setSelectedPatient(null);
       setMessage("Assignment created.");
+      toast({ kind: "success", title: "Equipment assigned", description: selectedEquipment?.label ?? "Assignment created." });
       onSaved?.();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Unable to create assignment.");
+      const description = error instanceof Error ? error.message : "Unable to create assignment.";
+      setMessage(description);
+      toast({ kind: "error", title: "Could not create assignment", description });
     }
   }
 
@@ -128,7 +137,7 @@ export function AssignmentForm({ onSaved }: { onSaved?: () => void }) {
               form.setValue("patient_id", option?.id ?? "", { shouldValidate: true });
             }}
           />
-          <Select {...form.register("region")}>
+          <Select defaultValue="Tampa" {...form.register("region")}>
             {floridaRegions.map((region) => <option key={region}>{region}</option>)}
           </Select>
           <Textarea placeholder="Assignment notes" {...form.register("notes")} />
@@ -154,6 +163,7 @@ export function ReturnForm({ onSaved }: { onSaved?: () => void }) {
   const [selectedEquipment, setSelectedEquipment] = useState<SearchPickerOption | null>(null);
   const [selectedPatient, setSelectedPatient] = useState<SearchPickerOption | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const { toast } = useToast();
   const form = useForm<z.infer<typeof returnSchema>>({
     resolver: zodResolver(returnSchema),
     defaultValues: { equipment_id: "", patient_id: "", assignment_id: "", scheduled_at: "", pickup_address: "", notes: "" }
@@ -174,9 +184,12 @@ export function ReturnForm({ onSaved }: { onSaved?: () => void }) {
       setSelectedEquipment(null);
       setSelectedPatient(null);
       setMessage("Return started.");
+      toast({ kind: "success", title: "Return started", description: selectedEquipment?.label ?? "Return workflow created." });
       onSaved?.();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Unable to start return.");
+      const description = error instanceof Error ? error.message : "Unable to start return.";
+      setMessage(description);
+      toast({ kind: "error", title: "Could not start return", description });
     }
   }
 
@@ -187,7 +200,7 @@ export function ReturnForm({ onSaved }: { onSaved?: () => void }) {
       </CardHeader>
       <CardContent>
         <form className="space-y-3" onSubmit={form.handleSubmit(onSubmit)}>
-          <Select {...form.register("assignment_id")} onChange={(event) => {
+          <Select defaultValue="" {...form.register("assignment_id")} onChange={(event) => {
             const assignment = assignments.find((item) => item.id === event.target.value);
             form.setValue("assignment_id", event.target.value);
             if (assignment) {
@@ -242,6 +255,7 @@ export function ServiceTicketForm({ onSaved }: { onSaved?: () => void }) {
   const [selectedEquipment, setSelectedEquipment] = useState<SearchPickerOption | null>(null);
   const [selectedPatient, setSelectedPatient] = useState<SearchPickerOption | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const { toast } = useToast();
   const form = useForm<z.infer<typeof ticketSchema>>({
     resolver: zodResolver(ticketSchema),
     defaultValues: { equipment_id: "", patient_id: "", priority: "medium", issue_description: "" }
@@ -255,9 +269,12 @@ export function ServiceTicketForm({ onSaved }: { onSaved?: () => void }) {
       setSelectedEquipment(null);
       setSelectedPatient(null);
       setMessage("Service ticket opened.");
+      toast({ kind: "success", title: "Service ticket opened", description: selectedEquipment?.label ?? "Ticket created." });
       onSaved?.();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Unable to open service ticket.");
+      const description = error instanceof Error ? error.message : "Unable to open service ticket.";
+      setMessage(description);
+      toast({ kind: "error", title: "Could not open ticket", description });
     }
   }
 
@@ -288,7 +305,7 @@ export function ServiceTicketForm({ onSaved }: { onSaved?: () => void }) {
               form.setValue("patient_id", option?.id ?? "", { shouldValidate: true });
             }}
           />
-          <Select {...form.register("priority")}>
+          <Select defaultValue="medium" {...form.register("priority")}>
             {["low", "medium", "high", "urgent"].map((item) => <option key={item} value={item}>{humanize(item)}</option>)}
           </Select>
           <Textarea placeholder="Issue description" {...form.register("issue_description")} />
@@ -336,15 +353,19 @@ export function ReturnStatusControl({ record, onSaved }: { record: ReturnRecord;
   const [note, setNote] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const { toast } = useToast();
   async function save() {
     setMessage(null);
     setIsSaving(true);
     try {
       await apiSend(`/returns/${record.id}/status`, "PATCH", { status, notes: note || null });
       setMessage("Updated.");
+      toast({ kind: "success", title: "Return updated", description: `Status changed to ${humanize(status)}.` });
       onSaved();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Unable to update return.");
+      const description = error instanceof Error ? error.message : "Unable to update return.";
+      setMessage(description);
+      toast({ kind: "error", title: "Could not update return", description });
     } finally {
       setIsSaving(false);
     }
@@ -368,6 +389,7 @@ export function ReturnInspectionChecklist({ record, onSaved }: { record: ReturnR
   const [inspection, setInspection] = useState<ReturnInspection | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const { toast } = useToast();
   const [values, setValues] = useState({
     cleaned: false,
     sanitized: false,
@@ -405,9 +427,12 @@ export function ReturnInspectionChecklist({ record, onSaved }: { record: ReturnR
       const saved = await apiSend<ReturnInspection>(`/returns/${record.id}/inspection`, "PUT", values);
       setInspection(saved);
       setMessage("Inspection saved.");
+      toast({ kind: "success", title: "Inspection saved", description: saved.approved_for_restock ? "Approved for restock." : "Checklist updated." });
       onSaved?.();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Unable to save inspection.");
+      const description = error instanceof Error ? error.message : "Unable to save inspection.";
+      setMessage(description);
+      toast({ kind: "error", title: "Could not save inspection", description });
     } finally {
       setIsSaving(false);
     }
@@ -437,9 +462,12 @@ export function ReturnInspectionChecklist({ record, onSaved }: { record: ReturnR
           ["repair_ticket_created", "Repair ticket created"],
           ["approved_for_restock", "Approved for restock"]
         ].map(([name, label]) => (
-          <label key={name} className="flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={Boolean(values[name as keyof typeof values])} onChange={() => toggle(name as keyof typeof values)} />
-            {label}
+          <label
+            key={name}
+            className="flex cursor-pointer items-center gap-3 rounded-md border border-border bg-card px-3 py-2.5 text-sm font-medium shadow-sm transition hover:border-primary/35 hover:bg-accent/50 active:translate-y-px"
+          >
+            <Checkbox checked={Boolean(values[name as keyof typeof values])} onChange={() => toggle(name as keyof typeof values)} />
+            <span>{label}</span>
           </label>
         ))}
       </div>
@@ -461,6 +489,7 @@ export function TicketStatusControl({ ticket, onSaved }: { ticket: ServiceTicket
   const [repairNotes, setRepairNotes] = useState(ticket.repair_notes ?? "");
   const [isSaving, setIsSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const { toast } = useToast();
   async function save() {
     setMessage(null);
     setIsSaving(true);
@@ -471,9 +500,12 @@ export function TicketStatusControl({ ticket, onSaved }: { ticket: ServiceTicket
         repair_notes: repairNotes || null
       });
       setMessage("Updated.");
+      toast({ kind: "success", title: "Ticket updated", description: `Status is ${humanize(status)}.` });
       onSaved();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Unable to update ticket.");
+      const description = error instanceof Error ? error.message : "Unable to update ticket.";
+      setMessage(description);
+      toast({ kind: "error", title: "Could not update ticket", description });
     } finally {
       setIsSaving(false);
     }
@@ -484,9 +516,9 @@ export function TicketStatusControl({ ticket, onSaved }: { ticket: ServiceTicket
         <Select value={status} onChange={(event) => setStatus(event.target.value as typeof status)}>
           {ticketStatuses.map((item) => <option key={item} value={item}>{humanize(item)}</option>)}
         </Select>
-        <label className="flex items-center gap-2 text-sm">
-          <input type="checkbox" checked={repairCompleted} onChange={(event) => setRepairCompleted(event.target.checked)} />
-          Repair completed
+        <label className="flex min-h-10 cursor-pointer items-center gap-3 rounded-md border border-border bg-card px-3 text-sm font-medium shadow-sm transition hover:border-primary/35 hover:bg-accent/50 active:translate-y-px">
+          <Checkbox checked={repairCompleted} onChange={(event) => setRepairCompleted(event.target.checked)} />
+          <span>Repair completed</span>
         </label>
       </div>
       <Textarea value={repairNotes} placeholder="Repair notes" onChange={(event) => setRepairNotes(event.target.value)} />

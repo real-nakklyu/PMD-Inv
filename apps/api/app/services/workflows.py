@@ -25,13 +25,13 @@ RETURN_TRANSITIONS = {
 }
 
 SERVICE_TRANSITIONS = {
-    "open": {"scheduled", "in_progress", "cancelled"},
-    "scheduled": {"in_progress", "waiting_parts", "cancelled"},
-    "waiting_parts": {"in_progress", "cancelled"},
-    "in_progress": {"waiting_parts", "resolved", "cancelled"},
-    "resolved": {"closed"},
-    "closed": set(),
-    "cancelled": set(),
+    "open": {"open", "scheduled", "waiting_parts", "in_progress", "resolved", "closed", "cancelled"},
+    "scheduled": {"open", "scheduled", "waiting_parts", "in_progress", "resolved", "closed", "cancelled"},
+    "waiting_parts": {"open", "scheduled", "waiting_parts", "in_progress", "resolved", "closed", "cancelled"},
+    "in_progress": {"open", "scheduled", "waiting_parts", "in_progress", "resolved", "closed", "cancelled"},
+    "resolved": {"open", "scheduled", "waiting_parts", "in_progress", "resolved", "closed", "cancelled"},
+    "closed": {"open", "scheduled", "waiting_parts", "in_progress", "resolved", "closed", "cancelled"},
+    "cancelled": {"open", "scheduled", "waiting_parts", "in_progress", "resolved", "closed", "cancelled"},
 }
 
 
@@ -180,16 +180,18 @@ class WorkflowService:
         ticket = self.tickets.get(ticket_id)
         next_status = payload.get("status")
         if next_status and next_status != ticket["status"]:
-            if next_status not in SERVICE_TRANSITIONS[ticket["status"]]:
+            if next_status not in SERVICE_TRANSITIONS:
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
-                    detail=f"Ticket cannot move from {ticket['status']} to {next_status}.",
+                    detail=f"{next_status} is not a valid service ticket status.",
                 )
             payload["updated_status_at"] = now_iso()
             if next_status in {"resolved", "closed"}:
                 payload["resolved_at"] = ticket.get("resolved_at") or now_iso()
             if next_status == "closed":
                 payload["closed_at"] = now_iso()
+            elif ticket.get("closed_at"):
+                payload["closed_at"] = None
 
         if payload.get("repair_completed") and not payload.get("repair_notes") and not ticket.get("repair_notes"):
             raise HTTPException(

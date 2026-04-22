@@ -12,9 +12,10 @@ def test_return_can_progress_to_received_from_in_transit():
     assert "received" in RETURN_TRANSITIONS["in_transit"]
 
 
-def test_service_ticket_requires_resolution_path():
-    assert "resolved" in SERVICE_TRANSITIONS["in_progress"]
-    assert "closed" not in SERVICE_TRANSITIONS["in_progress"]
+def test_service_ticket_can_jump_between_valid_statuses():
+    assert "closed" in SERVICE_TRANSITIONS["open"]
+    assert "cancelled" in SERVICE_TRANSITIONS["open"]
+    assert "in_progress" in SERVICE_TRANSITIONS["closed"]
 
 
 def test_http_exception_import_available():

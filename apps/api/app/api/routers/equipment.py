@@ -7,7 +7,7 @@ from app.core.auth import AuthUser, get_current_user, require_roles
 from app.db.supabase import get_supabase
 from app.repositories.equipment import EquipmentRepository
 from app.schemas.common import EquipmentStatus, EquipmentType, FloridaRegion
-from app.schemas.equipment import EquipmentCreate, EquipmentOut, EquipmentUpdate
+from app.schemas.equipment import EquipmentCreate, EquipmentListOut, EquipmentOut, EquipmentUpdate
 
 router = APIRouter(prefix="/equipment", tags=["equipment"])
 
@@ -24,6 +24,27 @@ def list_equipment(
 ):
     repo = EquipmentRepository(get_supabase())
     return repo.list_filtered(
+        search=search,
+        status_value=status,
+        region=region,
+        equipment_type=equipment_type,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.get("/page", response_model=EquipmentListOut)
+def list_equipment_page(
+    _: Annotated[AuthUser, Depends(get_current_user)],
+    search: str | None = None,
+    status: Annotated[EquipmentStatus | None, Query()] = None,
+    region: Annotated[FloridaRegion | None, Query()] = None,
+    equipment_type: Annotated[EquipmentType | None, Query()] = None,
+    limit: Annotated[int, Query(ge=1, le=100)] = 25,
+    offset: Annotated[int, Query(ge=0)] = 0,
+):
+    repo = EquipmentRepository(get_supabase())
+    return repo.list_filtered_page(
         search=search,
         status_value=status,
         region=region,

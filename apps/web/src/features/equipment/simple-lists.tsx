@@ -8,6 +8,8 @@ import { Badge } from "@/components/ui/badge";
 import { AttachmentUploader } from "@/components/storage/attachment-uploader";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ListSkeleton, Skeleton } from "@/components/ui/skeleton";
+import { useToast } from "@/components/ui/toast";
 import { apiGet, apiSend } from "@/lib/api";
 import { downloadCsv } from "@/lib/export";
 import { ticketDisplayNumber } from "@/lib/tickets";
@@ -17,14 +19,16 @@ import { ReturnInspectionChecklist, ReturnStatusControl } from "@/features/workf
 
 export function AssignedList({ refreshKey = 0 }: { refreshKey?: number }) {
   const [assignments, setAssignments] = useState<Assignment[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const { toast } = useToast();
   useEffect(() => {
     apiGet<Assignment[]>("/assignments").then((items) => {
       setAssignments(items);
       setError(null);
     }).catch((reason) => {
       setError(reason instanceof Error ? reason.message : "Unable to load assignments.");
-    });
+    }).finally(() => setIsLoading(false));
   }, [refreshKey]);
   function exportAssignments() {
     downloadCsv(
@@ -40,6 +44,7 @@ export function AssignedList({ refreshKey = 0 }: { refreshKey?: number }) {
         notes: item.notes ?? ""
       }))
     );
+    toast({ kind: "success", title: "Assignments CSV downloaded", description: `${assignments.length} records exported.` });
   }
   return (
     <Card>
@@ -54,7 +59,7 @@ export function AssignedList({ refreshKey = 0 }: { refreshKey?: number }) {
       </CardHeader>
       <CardContent className="space-y-3">
         {error ? <LoadError message={error} /> : null}
-        {assignments.length ? assignments.map((item) => (
+        {isLoading ? <ListSkeleton rows={4} /> : assignments.length ? assignments.map((item) => (
           <div key={item.id} className="flex flex-col justify-between gap-2 border-b border-border pb-3 last:border-0 md:flex-row md:items-center">
             <div>
               <div className="font-medium">{item.patients?.full_name ?? `${item.region} assignment`}</div>
@@ -75,16 +80,20 @@ export function AssignedList({ refreshKey = 0 }: { refreshKey?: number }) {
 
 export function ReturnsList({ refreshKey = 0, onChanged }: { refreshKey?: number; onChanged?: () => void }) {
   const [returns, setReturns] = useState<ReturnRecord[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const { toast } = useToast();
   function refresh() {
+    setIsLoading(true);
     apiGet<ReturnRecord[]>("/returns").then((items) => {
       setReturns(items);
       setError(null);
     }).catch((reason) => {
       setError(reason instanceof Error ? reason.message : "Unable to load returns.");
-    });
+    }).finally(() => setIsLoading(false));
   }
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     refresh();
   }, [refreshKey]);
   function exportReturns() {
@@ -102,15 +111,19 @@ export function ReturnsList({ refreshKey = 0, onChanged }: { refreshKey?: number
         notes: item.notes ?? ""
       }))
     );
+    toast({ kind: "success", title: "Returns CSV downloaded", description: `${returns.length} records exported.` });
   }
   async function deleteReturn(item: ReturnRecord) {
     if (!window.confirm(`Delete this return workflow?`)) return;
     try {
       await apiSend(`/returns/${item.id}`, "DELETE");
+      toast({ kind: "success", title: "Return deleted" });
       refresh();
       onChanged?.();
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Unable to delete return.");
+      const description = reason instanceof Error ? reason.message : "Unable to delete return.";
+      setError(description);
+      toast({ kind: "error", title: "Could not delete return", description });
     }
   }
   return (
@@ -126,7 +139,7 @@ export function ReturnsList({ refreshKey = 0, onChanged }: { refreshKey?: number
       </CardHeader>
       <CardContent className="space-y-3">
         {error ? <LoadError message={error} /> : null}
-        {returns.length ? returns.map((item) => (
+        {isLoading ? <ListSkeleton rows={4} /> : returns.length ? returns.map((item) => (
           <div key={item.id} className="grid gap-2 border-b border-border pb-3 last:border-0 md:grid-cols-[1fr_auto] md:items-center">
             <div>
               <div className="flex flex-wrap items-center gap-2">
@@ -163,16 +176,20 @@ export function ReturnsList({ refreshKey = 0, onChanged }: { refreshKey?: number
 
 export function TicketsList({ refreshKey = 0, onChanged }: { refreshKey?: number; onChanged?: () => void }) {
   const [tickets, setTickets] = useState<ServiceTicket[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const { toast } = useToast();
   function refresh() {
+    setIsLoading(true);
     apiGet<ServiceTicket[]>("/service-tickets").then((items) => {
       setTickets(items);
       setError(null);
     }).catch((reason) => {
       setError(reason instanceof Error ? reason.message : "Unable to load service tickets.");
-    });
+    }).finally(() => setIsLoading(false));
   }
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     refresh();
   }, [refreshKey]);
   function exportTickets() {
@@ -191,15 +208,19 @@ export function TicketsList({ refreshKey = 0, onChanged }: { refreshKey?: number
         closed_at: item.closed_at ?? ""
       }))
     );
+    toast({ kind: "success", title: "Service tickets CSV downloaded", description: `${tickets.length} records exported.` });
   }
   async function deleteTicket(ticket: ServiceTicket) {
     if (!window.confirm(`Delete service ticket ${ticketDisplayNumber(ticket)}?`)) return;
     try {
       await apiSend(`/service-tickets/${ticket.id}`, "DELETE");
+      toast({ kind: "success", title: "Service ticket deleted", description: ticketDisplayNumber(ticket) });
       refresh();
       onChanged?.();
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Unable to delete service ticket.");
+      const description = reason instanceof Error ? reason.message : "Unable to delete service ticket.";
+      setError(description);
+      toast({ kind: "error", title: "Could not delete ticket", description });
     }
   }
   return (
@@ -215,7 +236,7 @@ export function TicketsList({ refreshKey = 0, onChanged }: { refreshKey?: number
       </CardHeader>
       <CardContent className="space-y-3">
         {error ? <LoadError message={error} /> : null}
-        {tickets.length ? tickets.map((item) => (
+        {isLoading ? <ListSkeleton rows={4} /> : tickets.length ? tickets.map((item) => (
           <div key={item.id} className="grid gap-2 border-b border-border pb-3 last:border-0 md:grid-cols-[1fr_auto] md:items-center">
             <div>
               <div className="flex flex-wrap items-center gap-2">
@@ -246,32 +267,39 @@ export function TicketsList({ refreshKey = 0, onChanged }: { refreshKey?: number
 
 export function PatientsList({ refreshKey = 0 }: { refreshKey?: number }) {
   const [patients, setPatients] = useState<Patient[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const { toast } = useToast();
   function refresh() {
+    setIsLoading(true);
     apiGet<Patient[]>("/patients").then((items) => {
       setPatients(items);
       setError(null);
     }).catch((reason) => {
       setError(reason instanceof Error ? reason.message : "Unable to load patients.");
-    });
+    }).finally(() => setIsLoading(false));
   }
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     refresh();
   }, [refreshKey]);
   async function deletePatient(item: Patient) {
     if (!window.confirm(`Delete patient ${item.full_name}? This only works when no workflow history depends on them.`)) return;
     try {
       await apiSend(`/patients/${item.id}`, "DELETE");
+      toast({ kind: "success", title: "Patient deleted", description: item.full_name });
       refresh();
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Unable to delete patient.");
+      const description = reason instanceof Error ? reason.message : "Unable to delete patient.";
+      setError(description);
+      toast({ kind: "error", title: "Could not delete patient", description });
     }
   }
   return (
     <Card>
       <CardContent className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         {error ? <div className="md:col-span-2 xl:col-span-3"><LoadError message={error} /></div> : null}
-        {patients.length ? patients.map((item) => (
+        {isLoading ? <div className="md:col-span-2 xl:col-span-3"><ListSkeleton rows={6} /></div> : patients.length ? patients.map((item) => (
           <div key={item.id} className="rounded-lg border border-border p-3">
             <div className="flex items-start justify-between gap-2">
               <Link className="font-medium text-primary hover:underline" href={`/patients/${item.id}`}>{item.full_name}</Link>
@@ -311,7 +339,7 @@ export function EquipmentDetail({ id }: { id: string }) {
     });
   }, [id]);
   if (!equipment) {
-    return error ? <LoadError message={error} /> : <EmptyState message="Loading equipment detail..." />;
+    return error ? <LoadError message={error} /> : <DetailSkeleton />;
   }
   const currentAssignment = detail?.assignments.find((item) => item.status === "active" || item.status === "return_in_progress");
   return (
@@ -402,7 +430,7 @@ export function PatientDetail({ id }: { id: string }) {
   }, [id]);
 
   if (error) return <LoadError message={error} />;
-  if (!detail) return <EmptyState message="Loading patient detail..." />;
+  if (!detail) return <DetailSkeleton />;
 
   return (
     <div className="space-y-5">
@@ -441,6 +469,42 @@ function Detail({ label, value }: { label: string; value: React.ReactNode }) {
     <div>
       <div className="text-xs font-medium uppercase text-muted-foreground">{label}</div>
       <div className="mt-1 text-sm">{value}</div>
+    </div>
+  );
+}
+
+function DetailSkeleton() {
+  return (
+    <div className="grid gap-5 xl:grid-cols-[1fr_360px]">
+      <Card>
+        <CardHeader>
+          <Skeleton className="h-5 w-48" />
+        </CardHeader>
+        <CardContent className="grid gap-4 md:grid-cols-2">
+          {Array.from({ length: 8 }).map((_, index) => (
+            <div key={index}>
+              <Skeleton className="h-3 w-24" />
+              <Skeleton className="mt-2 h-5 w-36" />
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader>
+          <Skeleton className="h-5 w-36" />
+        </CardHeader>
+        <CardContent>
+          <ListSkeleton rows={3} />
+        </CardContent>
+      </Card>
+      <Card className="xl:col-span-2">
+        <CardHeader>
+          <Skeleton className="h-5 w-28" />
+        </CardHeader>
+        <CardContent>
+          <ListSkeleton rows={4} />
+        </CardContent>
+      </Card>
     </div>
   );
 }

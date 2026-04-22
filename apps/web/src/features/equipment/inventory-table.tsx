@@ -1,60 +1,62 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { createColumnHelper, flexRender, getCoreRowModel, getFilteredRowModel, getPaginationRowModel, getSortedRowModel, useReactTable } from "@tanstack/react-table";
+import { createColumnHelper, flexRender, getCoreRowModel, getSortedRowModel, useReactTable } from "@tanstack/react-table";
 import { ChevronLeft, ChevronRight, Download, ExternalLink, MapPin, Package, Trash2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input, Select } from "@/components/ui/input";
+import { ListSkeleton, TableSkeleton } from "@/components/ui/skeleton";
+import { useToast } from "@/components/ui/toast";
 import { apiGet, apiSend } from "@/lib/api";
 import { downloadCsv } from "@/lib/export";
 import { currency, humanize } from "@/lib/utils";
-import { equipmentStatuses, equipmentTypes, floridaRegions, type Equipment } from "@/types/domain";
+import { equipmentStatuses, equipmentTypes, floridaRegions, type Equipment, type EquipmentPage } from "@/types/domain";
 
 const column = createColumnHelper<Equipment>();
+const pageSize = 25;
 
 export function InventoryTable() {
   const [data, setData] = useState<Equipment[]>([]);
+  const [totalRecords, setTotalRecords] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [globalFilter, setGlobalFilter] = useState("");
+  const deferredSearch = useDeferredValue(globalFilter);
   const [region, setRegion] = useState("all");
   const [status, setStatus] = useState("all");
   const [type, setType] = useState("all");
+  const [pageIndex, setPageIndex] = useState(0);
+  const { toast } = useToast();
 
-  function refresh() {
+  const refresh = useCallback(() => {
     setIsLoading(true);
-    apiGet<Equipment[]>("/equipment").then((items) => {
-      setData(items);
+    apiGet<EquipmentPage>(`/equipment/page?${buildInventoryParams({ search: deferredSearch, region, status, type, offset: pageIndex * pageSize, limit: pageSize })}`).then((page) => {
+      setData(page.items);
+      setTotalRecords(page.total);
       setError(null);
     }).catch((reason) => {
       setError(reason instanceof Error ? reason.message : "Unable to load inventory.");
     }).finally(() => setIsLoading(false));
-  }
+  }, [deferredSearch, pageIndex, region, status, type]);
 
-  useEffect(refresh, []);
-
-  const filtered = useMemo(
-    () =>
-      data.filter((item) => {
-        if (region !== "all" && item.region !== region) return false;
-        if (status !== "all" && item.status !== status) return false;
-        if (type !== "all" && item.equipment_type !== type) return false;
-        return true;
-      }),
-    [data, region, status, type]
-  );
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
 
   async function deleteEquipment(item: Equipment) {
     if (!window.confirm(`Delete equipment ${item.serial_number}? This only works when no workflow history depends on it.`)) return;
     try {
       await apiSend(`/equipment/${item.id}`, "DELETE");
+      toast({ kind: "success", title: "Equipment deleted", description: item.serial_number });
       refresh();
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Unable to delete equipment.");
+      const description = reason instanceof Error ? reason.message : "Unable to delete equipment.";
+      setError(description);
+      toast({ kind: "error", title: "Could not delete equipment", description });
     }
   }
 
@@ -101,40 +103,53 @@ export function InventoryTable() {
   );
 
   const table = useReactTable({
-    data: filtered,
+    data,
     columns,
-    state: { globalFilter },
-    onGlobalFilterChange: setGlobalFilter,
     getCoreRowModel: getCoreRowModel(),
-    getFilteredRowModel: getFilteredRowModel(),
-    getSortedRowModel: getSortedRowModel(),
-    getPaginationRowModel: getPaginationRowModel()
+    getSortedRowModel: getSortedRowModel()
   });
 
-  function exportInventory() {
-    downloadCsv(
-      `pmdinv-inventory-${new Date().toISOString().slice(0, 10)}.csv`,
-      filtered.map((item) => ({
-        serial_number: item.serial_number,
-        equipment_type: humanize(item.equipment_type),
-        make: item.make,
-        model: item.model,
-        status: humanize(item.status),
-        region: item.region,
-        bought_price: item.bought_price,
-        added_at: item.added_at,
-        assigned_at: item.assigned_at ?? "",
-        notes: item.notes ?? ""
-      }))
-    );
+  async function exportInventory() {
+    try {
+      const exportParams = buildInventoryParams({ search: deferredSearch, region, status, type, offset: 0, limit: 1000 });
+      const items = await apiGet<Equipment[]>(`/equipment?${exportParams}`);
+      downloadCsv(
+        `pmdinv-inventory-${new Date().toISOString().slice(0, 10)}.csv`,
+        items.map((item) => ({
+          serial_number: item.serial_number,
+          equipment_type: humanize(item.equipment_type),
+          make: item.make,
+          model: item.model,
+          status: humanize(item.status),
+          region: item.region,
+          bought_price: item.bought_price,
+          added_at: item.added_at,
+          assigned_at: item.assigned_at ?? "",
+          notes: item.notes ?? ""
+        }))
+      );
+      toast({ kind: "success", title: "Inventory CSV downloaded", description: `${items.length} records exported.` });
+    } catch (reason) {
+      toast({ kind: "error", title: "Could not export inventory", description: reason instanceof Error ? reason.message : "Please try again." });
+    }
   }
+
+  const totalPages = Math.max(1, Math.ceil(totalRecords / pageSize));
+  const canGoPrevious = pageIndex > 0;
+  const canGoNext = pageIndex + 1 < totalPages;
 
   return (
     <Card>
       <CardContent>
         <div className="mb-5 grid gap-2 rounded-lg border border-border bg-muted/30 p-3 md:grid-cols-[1fr_160px_160px_160px_auto]">
-          <Input value={globalFilter} placeholder="Search serial, make, model" onChange={(event) => setGlobalFilter(event.target.value)} />
-          <Select value={region} onChange={(event) => setRegion(event.target.value)}>
+          <Input value={globalFilter} placeholder="Search serial, make, model" onChange={(event) => {
+            setGlobalFilter(event.target.value);
+            setPageIndex(0);
+          }} />
+          <Select value={region} onChange={(event) => {
+            setRegion(event.target.value);
+            setPageIndex(0);
+          }}>
             <option value="all">All regions</option>
             {floridaRegions.map((item) => (
               <option key={item} value={item}>
@@ -142,7 +157,10 @@ export function InventoryTable() {
               </option>
             ))}
           </Select>
-          <Select value={status} onChange={(event) => setStatus(event.target.value)}>
+          <Select value={status} onChange={(event) => {
+            setStatus(event.target.value);
+            setPageIndex(0);
+          }}>
             <option value="all">All statuses</option>
             {equipmentStatuses.map((item) => (
               <option key={item} value={item}>
@@ -150,7 +168,10 @@ export function InventoryTable() {
               </option>
             ))}
           </Select>
-          <Select value={type} onChange={(event) => setType(event.target.value)}>
+          <Select value={type} onChange={(event) => {
+            setType(event.target.value);
+            setPageIndex(0);
+          }}>
             <option value="all">All types</option>
             {equipmentTypes.map((item) => (
               <option key={item} value={item}>
@@ -167,18 +188,18 @@ export function InventoryTable() {
         {error ? <LoadError message={error} /> : null}
 
         <div className="space-y-3 md:hidden">
-          {table.getRowModel().rows.map((row) => (
+          {isLoading ? <ListSkeleton rows={4} /> : table.getRowModel().rows.map((row) => (
             <MobileInventoryCard key={row.original.id} item={row.original} onDelete={() => deleteEquipment(row.original)} />
           ))}
-          {!table.getRowModel().rows.length ? (
+          {!isLoading && !table.getRowModel().rows.length ? (
             <div className="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
-              {isLoading ? "Loading live inventory..." : "No inventory records found."}
+              No inventory records found.
             </div>
           ) : null}
         </div>
 
         <div className="hidden overflow-hidden rounded-lg border border-border md:block">
-          <div className="overflow-x-auto">
+          {isLoading ? <TableSkeleton rows={6} columns={6} /> : <div className="overflow-x-auto">
             <table className="w-full min-w-[760px] border-collapse text-sm">
               <thead className="bg-muted/65">
                 {table.getHeaderGroups().map((headerGroup) => (
@@ -204,21 +225,24 @@ export function InventoryTable() {
                 {!table.getRowModel().rows.length ? (
                   <tr>
                     <td className="px-3 py-8 text-center text-sm text-muted-foreground" colSpan={columns.length}>
-                      {isLoading ? "Loading live inventory..." : "No inventory records found."}
+                      No inventory records found.
                     </td>
                   </tr>
                 ) : null}
               </tbody>
             </table>
-          </div>
+          </div>}
         </div>
         <div className="mt-4 flex items-center justify-between rounded-md bg-muted/35 px-3 py-2">
-          <div className="text-xs font-medium text-muted-foreground">{table.getFilteredRowModel().rows.length} records</div>
+          <div className="text-xs font-medium text-muted-foreground">
+            {totalRecords} records
+            <span className="ml-2 text-muted-foreground/75">Page {pageIndex + 1} of {totalPages}</span>
+          </div>
           <div className="flex gap-2">
-            <Button className="bg-secondary text-secondary-foreground hover:bg-secondary/80" onClick={() => table.previousPage()} disabled={!table.getCanPreviousPage()}>
+            <Button className="bg-secondary text-secondary-foreground hover:bg-secondary/80" onClick={() => setPageIndex((value) => Math.max(0, value - 1))} disabled={!canGoPrevious || isLoading}>
               <ChevronLeft className="h-4 w-4" />
             </Button>
-            <Button className="bg-secondary text-secondary-foreground hover:bg-secondary/80" onClick={() => table.nextPage()} disabled={!table.getCanNextPage()}>
+            <Button className="bg-secondary text-secondary-foreground hover:bg-secondary/80" onClick={() => setPageIndex((value) => value + 1)} disabled={!canGoNext || isLoading}>
               <ChevronRight className="h-4 w-4" />
             </Button>
           </div>
@@ -226,6 +250,30 @@ export function InventoryTable() {
       </CardContent>
     </Card>
   );
+}
+
+function buildInventoryParams({
+  search,
+  region,
+  status,
+  type,
+  offset,
+  limit
+}: {
+  search: string;
+  region: string;
+  status: string;
+  type: string;
+  offset: number;
+  limit: number;
+}) {
+  const params = new URLSearchParams({ offset: String(offset), limit: String(limit) });
+  const trimmedSearch = search.trim();
+  if (trimmedSearch) params.set("search", trimmedSearch);
+  if (region !== "all") params.set("region", region);
+  if (status !== "all") params.set("status", status);
+  if (type !== "all") params.set("equipment_type", type);
+  return params.toString();
 }
 
 function MobileInventoryCard({ item, onDelete }: { item: Equipment; onDelete: () => void }) {

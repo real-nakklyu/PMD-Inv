@@ -47,6 +47,13 @@ export type Equipment = {
   updated_at: string;
 };
 
+export type EquipmentPage = {
+  items: Equipment[];
+  total: number;
+  limit: number;
+  offset: number;
+};
+
 export type Patient = {
   id: string;
   full_name: string;

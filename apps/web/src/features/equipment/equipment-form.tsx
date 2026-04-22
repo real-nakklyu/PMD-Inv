@@ -2,16 +2,22 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { ScanBarcode } from "lucide-react";
+import dynamic from "next/dynamic";
 import { useCallback, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
 
-import { BarcodeScanner } from "@/components/scanner/barcode-scanner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input, Select, Textarea } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
 import { apiSend } from "@/lib/api";
 import { equipmentTypes, floridaRegions } from "@/types/domain";
+
+const BarcodeScanner = dynamic(() => import("@/components/scanner/barcode-scanner").then((module) => module.BarcodeScanner), {
+  ssr: false,
+  loading: () => <Skeleton className="h-72 w-full" />
+});
 
 const schema = z.object({
   equipment_type: z.enum(equipmentTypes),
@@ -67,14 +73,14 @@ export function EquipmentForm({ onCreated }: { onCreated: () => void }) {
         <form className="grid gap-3 md:grid-cols-2" onSubmit={form.handleSubmit(onSubmit)}>
           <label className="space-y-1 text-sm">
             <span className="font-medium">Type</span>
-            <Select {...form.register("equipment_type")}>
+            <Select defaultValue="power_wheelchair" {...form.register("equipment_type")}>
               <option value="power_wheelchair">Power wheelchair</option>
               <option value="scooter">Scooter</option>
             </Select>
           </label>
           <label className="space-y-1 text-sm">
             <span className="font-medium">Region</span>
-            <Select {...form.register("region")}>
+            <Select defaultValue="Tampa" {...form.register("region")}>
               {floridaRegions.map((region) => (
                 <option key={region} value={region}>
                   {region}
