@@ -1,0 +1,18 @@
+{
+  "experimentalServices": {
+    "web": {
+      "entrypoint": "apps/web",
+      "routePrefix": "/"
+    },
+    "api": {
+      "entrypoint": "apps/api/app/main.py",
+      "routePrefix": "/api"
+    }
+  },
+  "crons": [
+    {
+      "path": "/api/cron/overdue-returns",
+      "schedule": "0 13 * * *"
+    }
+  ]
+}

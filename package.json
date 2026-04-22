@@ -1,0 +1,17 @@
+{
+  "name": "pmdinv",
+  "private": true,
+  "packageManager": "pnpm@10.7.1",
+  "scripts": {
+    "dev": "pnpm --parallel dev",
+    "dev:web": "pnpm --filter @pmdinv/web dev",
+    "dev:api": "pnpm --filter @pmdinv/api dev",
+    "build": "pnpm --filter @pmdinv/web build",
+    "lint": "pnpm --filter @pmdinv/web lint && pnpm --filter @pmdinv/api lint",
+    "test": "pnpm --filter @pmdinv/web test && pnpm --filter @pmdinv/api test",
+    "typecheck": "pnpm --filter @pmdinv/web typecheck"
+  },
+  "devDependencies": {
+    "turbo": "^2.5.0"
+  }
+}

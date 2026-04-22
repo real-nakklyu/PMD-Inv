@@ -1,0 +1,277 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { createColumnHelper, flexRender, getCoreRowModel, getFilteredRowModel, getPaginationRowModel, getSortedRowModel, useReactTable } from "@tanstack/react-table";
+import { ChevronLeft, ChevronRight, Download, ExternalLink, MapPin, Package, Trash2 } from "lucide-react";
+
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { Input, Select } from "@/components/ui/input";
+import { apiGet, apiSend } from "@/lib/api";
+import { downloadCsv } from "@/lib/export";
+import { currency, humanize } from "@/lib/utils";
+import { equipmentStatuses, equipmentTypes, floridaRegions, type Equipment } from "@/types/domain";
+
+const column = createColumnHelper<Equipment>();
+
+export function InventoryTable() {
+  const [data, setData] = useState<Equipment[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [globalFilter, setGlobalFilter] = useState("");
+  const [region, setRegion] = useState("all");
+  const [status, setStatus] = useState("all");
+  const [type, setType] = useState("all");
+
+  function refresh() {
+    setIsLoading(true);
+    apiGet<Equipment[]>("/equipment").then((items) => {
+      setData(items);
+      setError(null);
+    }).catch((reason) => {
+      setError(reason instanceof Error ? reason.message : "Unable to load inventory.");
+    }).finally(() => setIsLoading(false));
+  }
+
+  useEffect(refresh, []);
+
+  const filtered = useMemo(
+    () =>
+      data.filter((item) => {
+        if (region !== "all" && item.region !== region) return false;
+        if (status !== "all" && item.status !== status) return false;
+        if (type !== "all" && item.equipment_type !== type) return false;
+        return true;
+      }),
+    [data, region, status, type]
+  );
+
+  async function deleteEquipment(item: Equipment) {
+    if (!window.confirm(`Delete equipment ${item.serial_number}? This only works when no workflow history depends on it.`)) return;
+    try {
+      await apiSend(`/equipment/${item.id}`, "DELETE");
+      refresh();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Unable to delete equipment.");
+    }
+  }
+
+  const columns = useMemo(
+    () => [
+      column.accessor("serial_number", {
+        header: "Serial",
+        cell: (info) => <span className="font-mono text-xs">{info.getValue()}</span>
+      }),
+      column.accessor("equipment_type", {
+        header: "Type",
+        cell: (info) => humanize(info.getValue())
+      }),
+      column.accessor((row) => `${row.make} ${row.model}`, {
+        id: "equipment",
+        header: "Equipment"
+      }),
+      column.accessor("region", { header: "Region" }),
+      column.accessor("status", {
+        header: "Status",
+        cell: (info) => <Badge>{info.getValue()}</Badge>
+      }),
+      column.accessor("bought_price", {
+        header: "Cost",
+        cell: (info) => currency(info.getValue())
+      }),
+      column.display({
+        id: "actions",
+        header: "",
+        cell: ({ row }) => (
+          <div className="flex items-center gap-2">
+            <Link className="inline-flex items-center gap-1 text-sm font-medium text-primary" href={`/equipment/${row.original.id}`}>
+              Open <ExternalLink className="h-3 w-3" />
+            </Link>
+            <Button type="button" className="h-8 w-8 bg-secondary p-0 text-secondary-foreground hover:bg-secondary/80" aria-label="Delete equipment" onClick={() => deleteEquipment(row.original)}>
+              <Trash2 className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        )
+      })
+    ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []
+  );
+
+  const table = useReactTable({
+    data: filtered,
+    columns,
+    state: { globalFilter },
+    onGlobalFilterChange: setGlobalFilter,
+    getCoreRowModel: getCoreRowModel(),
+    getFilteredRowModel: getFilteredRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+    getPaginationRowModel: getPaginationRowModel()
+  });
+
+  function exportInventory() {
+    downloadCsv(
+      `pmdinv-inventory-${new Date().toISOString().slice(0, 10)}.csv`,
+      filtered.map((item) => ({
+        serial_number: item.serial_number,
+        equipment_type: humanize(item.equipment_type),
+        make: item.make,
+        model: item.model,
+        status: humanize(item.status),
+        region: item.region,
+        bought_price: item.bought_price,
+        added_at: item.added_at,
+        assigned_at: item.assigned_at ?? "",
+        notes: item.notes ?? ""
+      }))
+    );
+  }
+
+  return (
+    <Card>
+      <CardContent>
+        <div className="mb-5 grid gap-2 rounded-lg border border-border bg-muted/30 p-3 md:grid-cols-[1fr_160px_160px_160px_auto]">
+          <Input value={globalFilter} placeholder="Search serial, make, model" onChange={(event) => setGlobalFilter(event.target.value)} />
+          <Select value={region} onChange={(event) => setRegion(event.target.value)}>
+            <option value="all">All regions</option>
+            {floridaRegions.map((item) => (
+              <option key={item} value={item}>
+                {item}
+              </option>
+            ))}
+          </Select>
+          <Select value={status} onChange={(event) => setStatus(event.target.value)}>
+            <option value="all">All statuses</option>
+            {equipmentStatuses.map((item) => (
+              <option key={item} value={item}>
+                {humanize(item)}
+              </option>
+            ))}
+          </Select>
+          <Select value={type} onChange={(event) => setType(event.target.value)}>
+            <option value="all">All types</option>
+            {equipmentTypes.map((item) => (
+              <option key={item} value={item}>
+                {humanize(item)}
+              </option>
+            ))}
+          </Select>
+          <Button type="button" className="w-full bg-secondary text-secondary-foreground hover:bg-secondary/80 md:w-auto" onClick={exportInventory}>
+            <Download className="h-4 w-4" />
+            CSV
+          </Button>
+        </div>
+
+        {error ? <LoadError message={error} /> : null}
+
+        <div className="space-y-3 md:hidden">
+          {table.getRowModel().rows.map((row) => (
+            <MobileInventoryCard key={row.original.id} item={row.original} onDelete={() => deleteEquipment(row.original)} />
+          ))}
+          {!table.getRowModel().rows.length ? (
+            <div className="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
+              {isLoading ? "Loading live inventory..." : "No inventory records found."}
+            </div>
+          ) : null}
+        </div>
+
+        <div className="hidden overflow-hidden rounded-lg border border-border md:block">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[760px] border-collapse text-sm">
+              <thead className="bg-muted/65">
+                {table.getHeaderGroups().map((headerGroup) => (
+                  <tr key={headerGroup.id} className="border-b border-border">
+                    {headerGroup.headers.map((header) => (
+                      <th key={header.id} className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        {flexRender(header.column.columnDef.header, header.getContext())}
+                      </th>
+                    ))}
+                  </tr>
+                ))}
+              </thead>
+              <tbody>
+                {table.getRowModel().rows.map((row) => (
+                  <tr key={row.id} className="border-b border-border bg-card transition-colors last:border-0 hover:bg-muted/55">
+                    {row.getVisibleCells().map((cell) => (
+                      <td key={cell.id} className="px-4 py-3.5">
+                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+                {!table.getRowModel().rows.length ? (
+                  <tr>
+                    <td className="px-3 py-8 text-center text-sm text-muted-foreground" colSpan={columns.length}>
+                      {isLoading ? "Loading live inventory..." : "No inventory records found."}
+                    </td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div className="mt-4 flex items-center justify-between rounded-md bg-muted/35 px-3 py-2">
+          <div className="text-xs font-medium text-muted-foreground">{table.getFilteredRowModel().rows.length} records</div>
+          <div className="flex gap-2">
+            <Button className="bg-secondary text-secondary-foreground hover:bg-secondary/80" onClick={() => table.previousPage()} disabled={!table.getCanPreviousPage()}>
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <Button className="bg-secondary text-secondary-foreground hover:bg-secondary/80" onClick={() => table.nextPage()} disabled={!table.getCanNextPage()}>
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function MobileInventoryCard({ item, onDelete }: { item: Equipment; onDelete: () => void }) {
+  return (
+    <div className="rounded-lg border border-border bg-card p-4 shadow-sm">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="font-mono text-xs font-semibold text-primary">{item.serial_number}</div>
+          <div className="mt-1 truncate text-base font-semibold">{item.make} {item.model}</div>
+          <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+            <span className="inline-flex items-center gap-1"><Package className="h-3.5 w-3.5" /> {humanize(item.equipment_type)}</span>
+            <span className="inline-flex items-center gap-1"><MapPin className="h-3.5 w-3.5" /> {item.region}</span>
+          </div>
+        </div>
+        <Badge>{item.status}</Badge>
+      </div>
+      <div className="mt-3 grid grid-cols-2 gap-2 rounded-md bg-muted/35 p-3 text-sm">
+        <div>
+          <div className="text-xs font-medium uppercase text-muted-foreground">Cost</div>
+          <div className="mt-0.5 font-semibold">{currency(item.bought_price)}</div>
+        </div>
+        <div>
+          <div className="text-xs font-medium uppercase text-muted-foreground">Added</div>
+          <div className="mt-0.5 font-semibold">{new Date(item.added_at).toLocaleDateString()}</div>
+        </div>
+      </div>
+      <div className="mt-3 grid grid-cols-[1fr_auto] gap-2">
+        <Link
+          href={`/equipment/${item.id}`}
+          className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-primary px-3 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90 active:translate-y-px active:scale-[0.98]"
+        >
+          Open
+          <ExternalLink className="h-4 w-4" />
+        </Link>
+        <Button type="button" className="h-10 w-10 bg-secondary p-0 text-secondary-foreground hover:bg-secondary/80" aria-label="Delete equipment" onClick={onDelete}>
+          <Trash2 className="h-4 w-4" />
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function LoadError({ message }: { message: string }) {
+  return (
+    <div className="mb-3 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200">
+      Live inventory could not be loaded. {message}
+    </div>
+  );
+}

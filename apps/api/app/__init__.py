@@ -1,0 +1,1 @@
+"""PMDInv FastAPI application."""
