@@ -27,7 +27,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [note, setNote] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(() => initialLoginMessage());
   const supabaseConfigured = hasSupabaseBrowserEnv();
 
   useEffect(() => {
@@ -267,4 +267,11 @@ function readPendingAccessRequest(): PendingAccessRequest | null {
   } catch {
     return null;
   }
+}
+
+function initialLoginMessage() {
+  if (typeof window === "undefined") return null;
+  const reason = new URLSearchParams(window.location.search).get("reason");
+  if (reason === "session_expired") return "Your session expired. Please sign in again to continue.";
+  return null;
 }

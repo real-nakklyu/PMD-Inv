@@ -6,10 +6,15 @@
     "dev": "pnpm --parallel dev",
     "dev:web": "pnpm --filter @pmdinv/web dev",
     "dev:api": "pnpm --filter @pmdinv/api dev",
+    "dev:ios": "pnpm --filter @pmdinv/ios start",
+    "dev:ios:tunnel": "pnpm --filter @pmdinv/ios start:tunnel",
+    "preflight:ios": "pnpm --filter @pmdinv/ios preflight",
     "build": "pnpm --filter @pmdinv/web build",
     "lint": "pnpm --filter @pmdinv/web lint && pnpm --filter @pmdinv/api lint",
     "test": "pnpm --filter @pmdinv/web test && pnpm --filter @pmdinv/api test",
-    "typecheck": "pnpm --filter @pmdinv/web typecheck"
+    "typecheck": "pnpm --filter @pmdinv/web typecheck",
+    "lint:ios": "pnpm --filter @pmdinv/ios lint",
+    "typecheck:ios": "pnpm --filter @pmdinv/ios typecheck"
   },
   "devDependencies": {
     "turbo": "^2.5.0"

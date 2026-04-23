@@ -24,6 +24,19 @@ def list_returns(_: Annotated[AuthUser, Depends(get_current_user)], limit: int =
     return response.data or []
 
 
+@router.get("/{return_id}")
+def get_return(return_id: str, _: Annotated[AuthUser, Depends(get_current_user)]):
+    response = (
+        get_supabase()
+        .table("returns")
+        .select("*, patients(full_name,date_of_birth,region), equipment(serial_number,make,model,equipment_type,status)")
+        .eq("id", return_id)
+        .single()
+        .execute()
+    )
+    return response.data
+
+
 @router.post("", response_model=ReturnOut, status_code=201)
 def create_return(payload: ReturnCreate, user: Annotated[AuthUser, Depends(require_roles("admin", "dispatcher"))]):
     return WorkflowService(get_supabase()).create_return(payload.model_dump(mode="json"), actor_id=user.id)

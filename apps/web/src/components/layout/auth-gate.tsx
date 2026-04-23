@@ -4,7 +4,7 @@ import { Loader2 } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
-import { apiGet } from "@/lib/api";
+import { ApiError, apiGet } from "@/lib/api";
 import { createSupabaseBrowserClient, hasSupabaseBrowserEnv } from "@/lib/supabase";
 import type { ProfileMe } from "@/types/domain";
 
@@ -41,6 +41,11 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
         router.replace("/pending-approval");
       } catch (error) {
         if (!active) return;
+        if (error instanceof ApiError && error.status === 401) {
+          await supabase.auth.signOut();
+          router.replace(`/login?next=${encodeURIComponent(pathname)}&reason=session_expired`);
+          return;
+        }
         setMessage(error instanceof Error ? error.message : "Unable to verify access.");
       }
     }

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { FileText, Image as ImageIcon, Loader2, MessageCircle, Paperclip, RefreshCw, Search, Send, Trash2, Users, X } from "lucide-react";
+import { ArrowLeft, FileText, Image as ImageIcon, Loader2, MessageCircle, Paperclip, RefreshCw, Search, Send, Trash2, Users, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
@@ -60,7 +60,7 @@ export function MessagesClient() {
       setThreads(data);
       publishMessageUnreadTotal(data);
       setError(null);
-      if (!selectedThreadIdRef.current && data.length) {
+      if (!selectedThreadIdRef.current && data.length && shouldAutoselectThread()) {
         setSelectedThreadId(data[0].id);
       }
     } catch (reason) {
@@ -345,13 +345,13 @@ export function MessagesClient() {
   }
 
   return (
-    <div className="grid h-[calc(100vh-9rem)] min-h-[34rem] gap-4 xl:grid-cols-[340px_1fr]">
-      <Card className="overflow-hidden">
-        <CardContent className="space-y-4 p-0">
+    <div className="grid h-[calc(100dvh-6rem)] min-h-[34rem] overflow-hidden sm:h-[calc(100vh-13rem)] xl:grid-cols-[360px_1fr] xl:gap-4">
+      <Card className={cn("min-h-0 overflow-hidden", selectedThread && "hidden xl:block")}>
+        <CardContent className="flex h-full min-h-0 flex-col p-0">
           <div className="border-b border-border p-4">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <div className="text-sm font-semibold">Conversations</div>
+                <div className="text-xl font-semibold sm:text-sm">Messages</div>
                 <div className="text-xs text-muted-foreground">{totalUnread ? `${totalUnread} unread message${totalUnread === 1 ? "" : "s"}` : "Unread messages stay highlighted."}</div>
               </div>
               <Button type="button" className="h-9 w-9 bg-secondary p-0 text-secondary-foreground hover:bg-secondary/80" onClick={loadThreads} aria-label="Refresh conversations">
@@ -359,28 +359,33 @@ export function MessagesClient() {
               </Button>
             </div>
           </div>
-          <div className="max-h-[28rem] space-y-2 overflow-y-auto px-3">
+          <div className="min-h-0 flex-1 space-y-1 overflow-y-auto px-2 py-2">
             {isLoadingThreads ? <div className="p-3 text-sm text-muted-foreground">Loading conversations...</div> : null}
             {!isLoadingThreads && threads.length ? threads.map((thread) => (
               <button
                 key={thread.id}
                 type="button"
                 className={cn(
-                  "w-full rounded-md border border-border bg-card p-3 text-left transition hover:border-primary/40 hover:bg-accent/60 active:scale-[0.99]",
+                  "flex w-full items-center gap-3 rounded-md px-3 py-3 text-left transition hover:bg-accent/60 active:scale-[0.99]",
                   selectedThreadId === thread.id && "border-primary/50 bg-accent"
                 )}
                 onClick={() => setSelectedThreadId(thread.id)}
               >
-                <span className="flex items-start justify-between gap-2">
-                  <span className="font-semibold">{threadTitle(thread, currentUser?.id)}</span>
-                  {thread.unread_count ? (
-                    <Badge className="shrink-0 rounded-full border-primary/25 bg-primary/10 text-primary dark:bg-primary/20 dark:text-primary-foreground">
-                      {formatUnreadMessages(thread.unread_count)}
-                    </Badge>
-                  ) : null}
+                <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full border border-primary/20 bg-primary/10 text-sm font-semibold text-primary">
+                  {threadInitials(thread, currentUser?.id)}
                 </span>
-                <span className="mt-1 line-clamp-2 block text-sm text-muted-foreground">
-                  {thread.latest_message?.body || (thread.latest_message ? "Attachment sent" : "No messages yet")}
+                <span className="min-w-0 flex-1">
+                  <span className="flex items-start justify-between gap-2">
+                    <span className="truncate font-semibold">{threadTitle(thread, currentUser?.id)}</span>
+                    {thread.unread_count ? (
+                      <Badge className="shrink-0 rounded-full border-primary/25 bg-primary/10 text-primary dark:bg-primary/20 dark:text-primary-foreground">
+                        {formatUnreadMessages(thread.unread_count)}
+                      </Badge>
+                    ) : null}
+                  </span>
+                  <span className="mt-0.5 line-clamp-1 block text-sm text-muted-foreground">
+                    {thread.latest_message?.body || (thread.latest_message ? "Attachment sent" : "No messages yet")}
+                  </span>
                 </span>
               </button>
             )) : null}
@@ -428,20 +433,32 @@ export function MessagesClient() {
         </CardContent>
       </Card>
 
-      <Card className="min-h-0 overflow-hidden">
+      <Card className={cn("min-h-0 overflow-hidden", !selectedThread && "hidden xl:block")}>
         <CardContent className="flex h-full min-h-0 flex-col p-0">
-          <div className="flex items-center justify-between gap-3 border-b border-border p-4">
-            <div>
-              <div className="text-base font-semibold">{selectedThread ? threadTitle(selectedThread, currentUser?.id) : "Select a conversation"}</div>
+          <div className="flex items-center justify-between gap-3 border-b border-border p-3 sm:p-4">
+            <div className="flex min-w-0 items-center gap-3">
+              {selectedThread ? (
+                <Button type="button" className="h-9 w-9 shrink-0 bg-secondary p-0 text-secondary-foreground hover:bg-secondary/80 xl:hidden" onClick={() => setSelectedThreadId(null)} aria-label="Back to conversations">
+                  <ArrowLeft className="h-4 w-4" />
+                </Button>
+              ) : null}
+              {selectedThread ? (
+                <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full border border-primary/20 bg-primary/10 text-sm font-semibold text-primary">
+                  {threadInitials(selectedThread, currentUser?.id)}
+                </span>
+              ) : null}
+              <div className="min-w-0">
+              <div className="truncate text-base font-semibold">{selectedThread ? threadTitle(selectedThread, currentUser?.id) : "Select a conversation"}</div>
               <div className="text-xs text-muted-foreground">
                 {selectedThread ? `${selectedThread.members.length} member${selectedThread.members.length === 1 ? "" : "s"}` : "Choose a staff member or conversation to begin."}
+              </div>
               </div>
             </div>
             {selectedThread ? (
               <div className="flex items-center gap-2">
-                {selectedThread.unread_count ? <Badge>{formatUnreadMessages(selectedThread.unread_count)}</Badge> : null}
-                <Badge>{realtimeStatus === "connected" ? "Realtime" : "Polling"}</Badge>
-                <Badge>{selectedThread.thread_type}</Badge>
+                {selectedThread.unread_count ? <Badge className="hidden sm:inline-flex">{formatUnreadMessages(selectedThread.unread_count)}</Badge> : null}
+                <Badge className="hidden sm:inline-flex">{realtimeStatus === "connected" ? "Realtime" : "Polling"}</Badge>
+                <Badge className="hidden sm:inline-flex">{selectedThread.thread_type}</Badge>
                 <Button type="button" className="h-9 w-9 bg-secondary p-0 text-secondary-foreground hover:bg-secondary/80" aria-label="Remove conversation" onClick={() => setConfirmDeleteOpen(true)}>
                   <Trash2 className="h-4 w-4" />
                 </Button>
@@ -451,7 +468,7 @@ export function MessagesClient() {
 
           {error ? <div className="m-4 rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200">{error}</div> : null}
 
-          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto bg-muted/20 p-4">
+          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto bg-muted/20 p-3 sm:p-4">
             {!selectedThread ? <EmptyMessages /> : null}
             {selectedThread && isLoadingMessages ? <div className="text-sm text-muted-foreground">Loading messages...</div> : null}
             {selectedThread && !isLoadingMessages && messages.length ? messages.map((message) => (
@@ -468,7 +485,7 @@ export function MessagesClient() {
             ) : null}
           </div>
 
-          <div className="border-t border-border bg-card p-3 md:p-4">
+          <div className="border-t border-border bg-card p-2 sm:p-3 md:p-4">
             {files.length ? (
               <div className="mb-3 flex flex-wrap gap-2">
                 {files.map((file, index) => (
@@ -594,8 +611,19 @@ function threadTitle(thread: MessageThread, currentUserId?: string) {
   return names.join(", ") || "Conversation";
 }
 
+function threadInitials(thread: MessageThread, currentUserId?: string) {
+  const title = threadTitle(thread, currentUserId);
+  const words = title.split(/\s+/).filter(Boolean);
+  return (words[0]?.[0] ?? "C") + (words[1]?.[0] ?? "");
+}
+
 function formatUnreadMessages(count: number) {
   return `${count} New Message${count === 1 ? "" : "s"}`;
+}
+
+function shouldAutoselectThread() {
+  if (typeof window === "undefined") return false;
+  return window.matchMedia("(min-width: 1280px)").matches;
 }
 
 function publishMessageUnreadTotal(threads: MessageThread[]) {

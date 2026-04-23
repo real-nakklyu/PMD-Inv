@@ -6,10 +6,11 @@ The app is designed as a production-style Vercel deployment with a Next.js front
 
 ## Architecture Decision
 
-This repository uses a small monorepo with two Vercel services:
+This repository uses a small monorepo with two Vercel services plus a mobile client:
 
 - `apps/web`: Next.js App Router, TypeScript, Tailwind CSS, React Hook Form, Zod, TanStack Table, Recharts, Supabase Auth client, and a browser barcode scanner component.
 - `apps/api`: Python FastAPI service mounted at `/api`, with typed routers, schemas, repositories, workflow services, and Supabase data access.
+- `apps/ios`: Expo Router based mobile client for iPhone/iPad field workflows, reusing the same Supabase Auth and FastAPI operational backend.
 - `apps/messaging-elixir`: optional Elixir websocket service for low-latency staff messaging fanout. It is deployed separately from Vercel and the web app falls back to FastAPI messaging when it is not configured.
 - `supabase`: SQL migrations and seed data for Postgres enums, constraints, indexes, RLS policies, and sample Florida data.
 
@@ -31,6 +32,10 @@ Vercel Services keeps the deployment practical: the frontend is served at `/`, a
 |   |   |   `-- main.py
 |   |   |-- tests
 |   |   `-- pyproject.toml
+|   |-- ios
+|   |   |-- app
+|   |   |-- src
+|   |   `-- app.config.ts
 |   `-- web
 |       |-- src
 |       |   |-- app
@@ -197,6 +202,21 @@ Run both through the workspace:
 pnpm dev
 ```
 
+Run the iOS/mobile app:
+
+```bash
+copy apps/ios/.env.example apps/ios/.env
+pnpm preflight:ios
+pnpm dev:ios
+```
+
+Run the iOS/mobile app for a real iPhone over Expo tunnel:
+
+```bash
+pnpm preflight:ios
+pnpm dev:ios:tunnel
+```
+
 When using Vercel Services locally, run:
 
 ```bash
@@ -212,6 +232,12 @@ Frontend:
 - `NEXT_PUBLIC_MESSAGING_WS_URL` optional websocket URL for the Elixir messaging service
 - `NEXT_PUBLIC_SUPABASE_URL`
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+- `EXPO_PUBLIC_API_URL`
+- `EXPO_PUBLIC_MESSAGING_WS_URL`
+- `EXPO_PUBLIC_SUPABASE_URL`
+- `EXPO_PUBLIC_SUPABASE_ANON_KEY`
+
+See the mobile install instructions in [docs/ios-install-guide.md](/C:/Users/User/Desktop/PMDInv/docs/ios-install-guide.md).
 
 Backend:
 
