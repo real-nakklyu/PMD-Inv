@@ -25,6 +25,7 @@ type RealtimePayload = {
 };
 
 const messagingWsUrl = process.env.NEXT_PUBLIC_MESSAGING_WS_URL;
+const messageUnreadEventName = "pmdinv:message-unread-count";
 
 export function MessagesClient() {
   const [staff, setStaff] = useState<MessageStaffMember[]>([]);
@@ -57,6 +58,7 @@ export function MessagesClient() {
     try {
       const data = await apiGet<MessageThread[]>("/messages/threads");
       setThreads(data);
+      publishMessageUnreadTotal(data);
       setError(null);
       if (!selectedThreadIdRef.current && data.length) {
         setSelectedThreadId(data[0].id);
@@ -371,7 +373,11 @@ export function MessagesClient() {
               >
                 <span className="flex items-start justify-between gap-2">
                   <span className="font-semibold">{threadTitle(thread, currentUser?.id)}</span>
-                  {thread.unread_count ? <Badge>{thread.unread_count} new</Badge> : null}
+                  {thread.unread_count ? (
+                    <Badge className="shrink-0 rounded-full border-primary/25 bg-primary/10 text-primary dark:bg-primary/20 dark:text-primary-foreground">
+                      {formatUnreadMessages(thread.unread_count)}
+                    </Badge>
+                  ) : null}
                 </span>
                 <span className="mt-1 line-clamp-2 block text-sm text-muted-foreground">
                   {thread.latest_message?.body || (thread.latest_message ? "Attachment sent" : "No messages yet")}
@@ -433,7 +439,7 @@ export function MessagesClient() {
             </div>
             {selectedThread ? (
               <div className="flex items-center gap-2">
-                {selectedThread.unread_count ? <Badge>{selectedThread.unread_count} unread</Badge> : null}
+                {selectedThread.unread_count ? <Badge>{formatUnreadMessages(selectedThread.unread_count)}</Badge> : null}
                 <Badge>{realtimeStatus === "connected" ? "Realtime" : "Polling"}</Badge>
                 <Badge>{selectedThread.thread_type}</Badge>
                 <Button type="button" className="h-9 w-9 bg-secondary p-0 text-secondary-foreground hover:bg-secondary/80" aria-label="Remove conversation" onClick={() => setConfirmDeleteOpen(true)}>
@@ -586,4 +592,14 @@ function threadTitle(thread: MessageThread, currentUserId?: string) {
     .map((member) => member.profile?.full_name)
     .filter(Boolean);
   return names.join(", ") || "Conversation";
+}
+
+function formatUnreadMessages(count: number) {
+  return `${count} New Message${count === 1 ? "" : "s"}`;
+}
+
+function publishMessageUnreadTotal(threads: MessageThread[]) {
+  if (typeof window === "undefined") return;
+  const count = threads.reduce((sum, thread) => sum + thread.unread_count, 0);
+  window.dispatchEvent(new CustomEvent(messageUnreadEventName, { detail: { count } }));
 }
