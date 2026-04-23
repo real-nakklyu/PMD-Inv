@@ -82,3 +82,23 @@
   - `pnpm --filter @pmdinv/ios typecheck`
   - `pnpm --filter @pmdinv/ios lint`
   - `pnpm exec expo export --platform ios`
+
+### Label packet support on iPhone
+
+- Reviewed the web app label flow and confirmed the operational pattern:
+  - returns and service tickets do not create separate label formats
+  - both workflows rely on the shared equipment label packet
+  - the label packet includes QR, equipment details, current assignment, patient info, and notes
+- Implemented the same model on iPhone:
+  - added a dedicated label packet screen for equipment
+  - added QR preview, PDF sharing, and native print support
+  - exposed label packet entry points from equipment, return, and service ticket detail screens
+- Added native dependencies for the label flow:
+  - `expo-print`
+  - `expo-sharing`
+  - `qrcode`
+- Revalidated the label packet work with:
+  - `pnpm --filter @pmdinv/ios typecheck`
+  - `pnpm --filter @pmdinv/ios lint`
+  - `pnpm exec expo-doctor`
+  - `pnpm exec expo export --platform ios`

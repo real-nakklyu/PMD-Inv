@@ -9,6 +9,7 @@ import { Card } from "@/src/components/card";
 import { EmptyState } from "@/src/components/empty-state";
 import { ErrorBanner } from "@/src/components/error-banner";
 import { InputField } from "@/src/components/input-field";
+import { LabelShortcutCard } from "@/src/components/label-shortcut-card";
 import { LoadingView } from "@/src/components/loading-view";
 import { SectionHeading } from "@/src/components/section-heading";
 import { ToggleRow } from "@/src/components/toggle-row";
@@ -106,6 +107,16 @@ export default function ReturnDetailScreen() {
         <Text style={styles.meta}>Pickup address: {returnResource.data.pickup_address || "Not provided"}</Text>
         {returnResource.data.notes ? <Text style={styles.meta}>{returnResource.data.notes}</Text> : null}
       </Card>
+
+      <LabelShortcutCard
+        equipmentId={returnResource.data.equipment_id}
+        primaryText={`${returnResource.data.equipment?.serial_number ?? returnResource.data.equipment_id} / ${returnResource.data.equipment?.make ?? "Equipment"} ${returnResource.data.equipment?.model ?? ""}`.trim()}
+        secondaryText={
+          returnResource.data.patients?.full_name
+            ? `Return patient: ${returnResource.data.patients.full_name}`
+            : "Open the equipment label packet for this return workflow"
+        }
+      />
 
       {error ? <ErrorBanner message={error} /> : null}
 

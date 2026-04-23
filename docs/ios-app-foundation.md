@@ -68,6 +68,9 @@ This app currently uses Expo SDK 54 because that is what the current official sc
 - send text message
 - iPhone-style chat bubbles and fixed bottom composer
 - mobile attachment picking for staff messages
+- equipment label packet preview
+- return and service ticket shortcuts into the shared equipment label packet
+- native iPhone PDF share and print flow for label packets
 
 ## API additions made for mobile
 

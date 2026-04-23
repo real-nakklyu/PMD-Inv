@@ -8,6 +8,7 @@ import { Button } from "@/src/components/button";
 import { Card } from "@/src/components/card";
 import { EmptyState } from "@/src/components/empty-state";
 import { ErrorBanner } from "@/src/components/error-banner";
+import { LabelShortcutCard } from "@/src/components/label-shortcut-card";
 import { LoadingView } from "@/src/components/loading-view";
 import { SectionHeading } from "@/src/components/section-heading";
 import { colors } from "@/src/constants/theme";
@@ -61,6 +62,16 @@ export default function EquipmentDetailScreen() {
           }
         />
       ) : null}
+
+      <LabelShortcutCard
+        equipmentId={equipment.id}
+        primaryText={`${equipment.serial_number} / ${equipment.make} ${equipment.model}`}
+        secondaryText={
+          activeAssignment?.patients?.full_name
+            ? `Currently assigned to ${activeAssignment.patients.full_name}`
+            : "Not currently assigned to a patient"
+        }
+      />
 
       <Card>
         <Text style={styles.heading}>Current Assignment</Text>

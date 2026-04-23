@@ -9,6 +9,7 @@ import { Card } from "@/src/components/card";
 import { EmptyState } from "@/src/components/empty-state";
 import { ErrorBanner } from "@/src/components/error-banner";
 import { InputField } from "@/src/components/input-field";
+import { LabelShortcutCard } from "@/src/components/label-shortcut-card";
 import { LoadingView } from "@/src/components/loading-view";
 import { SectionHeading } from "@/src/components/section-heading";
 import { colors } from "@/src/constants/theme";
@@ -73,6 +74,16 @@ export default function TicketDetailScreen() {
         <Text style={styles.meta}>Opened {formatDateTime(ticketResource.data.opened_at)}</Text>
         <Text style={styles.issue}>{ticketResource.data.issue_description}</Text>
       </Card>
+
+      <LabelShortcutCard
+        equipmentId={ticketResource.data.equipment_id}
+        primaryText={`${ticketResource.data.equipment?.serial_number ?? ticketResource.data.equipment_id} / ${ticketResource.data.ticket_number || ticketResource.data.id.slice(0, 8)}`}
+        secondaryText={
+          ticketResource.data.patients?.full_name
+            ? `Linked patient: ${ticketResource.data.patients.full_name}`
+            : "Use the equipment label packet while handling this service ticket"
+        }
+      />
 
       {error ? <ErrorBanner message={error} /> : null}
 

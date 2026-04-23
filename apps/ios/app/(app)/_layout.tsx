@@ -31,6 +31,7 @@ export default function AppLayout() {
     >
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
       <Stack.Screen name="equipment/[id]" options={{ title: "Equipment" }} />
+      <Stack.Screen name="labels/[equipmentId]" options={{ title: "Label Packet" }} />
       <Stack.Screen name="returns/[id]" options={{ title: "Return" }} />
       <Stack.Screen name="returns/new" options={{ title: "New Return" }} />
       <Stack.Screen name="tickets/[id]" options={{ title: "Service Ticket" }} />
