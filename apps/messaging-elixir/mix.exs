@@ -30,6 +30,7 @@ defmodule PmdMessaging.MixProject do
       {:jason, "~> 1.4"},
       {:plug, "~> 1.16"},
       {:req, "~> 0.5"},
+      {:websock, "~> 0.5"},
       {:websock_adapter, "~> 0.5"}
     ]
   end
