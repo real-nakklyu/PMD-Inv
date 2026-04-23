@@ -66,6 +66,8 @@ This app currently uses Expo SDK 54 because that is what the current official sc
 - conversations list
 - direct-message thread view
 - send text message
+- iPhone-style chat bubbles and fixed bottom composer
+- mobile attachment picking for staff messages
 
 ## API additions made for mobile
 

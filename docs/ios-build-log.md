@@ -63,3 +63,22 @@
 - Added `@expo/ngrok` so Expo tunnel no longer stops to request a global install during device startup
 - Expo tunnel launch was validated locally after the ngrok dependency was added
 - EAS login is still required before creating installable preview or production builds
+
+### Messaging UX refresh
+
+- Reworked the Messages tab to behave more like the native iPhone Messages list:
+  - rounded conversation rows
+  - timestamps in the list
+  - unread count pills
+  - quick-start staff contacts across the top
+- Rebuilt the thread screen around a real chat layout:
+  - left/right chat bubbles
+  - day separators
+  - fixed composer docked to the bottom
+  - persistent attach and send controls
+- Added mobile message attachment picking with `expo-document-picker`.
+- Added signed attachment opening for message history so uploaded files can be opened from the iPhone chat view.
+- Revalidated the messaging changes with:
+  - `pnpm --filter @pmdinv/ios typecheck`
+  - `pnpm --filter @pmdinv/ios lint`
+  - `pnpm exec expo export --platform ios`
