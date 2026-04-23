@@ -19,3 +19,19 @@ class ServiceTicketRepository(SupabaseRepository):
 
 class ActivityRepository(SupabaseRepository):
     table_name = "activity_logs"
+
+
+class AppointmentRepository(SupabaseRepository):
+    table_name = "operational_appointments"
+
+
+class AvailabilityThresholdRepository(SupabaseRepository):
+    table_name = "availability_thresholds"
+
+
+class SavedViewRepository(SupabaseRepository):
+    table_name = "saved_views"
+
+
+class DeliverySetupChecklistRepository(SupabaseRepository):
+    table_name = "delivery_setup_checklists"

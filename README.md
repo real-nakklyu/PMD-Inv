@@ -10,6 +10,7 @@ This repository uses a small monorepo with two Vercel services:
 
 - `apps/web`: Next.js App Router, TypeScript, Tailwind CSS, React Hook Form, Zod, TanStack Table, Recharts, Supabase Auth client, and a browser barcode scanner component.
 - `apps/api`: Python FastAPI service mounted at `/api`, with typed routers, schemas, repositories, workflow services, and Supabase data access.
+- `apps/messaging-elixir`: optional Elixir websocket service for low-latency staff messaging fanout. It is deployed separately from Vercel and the web app falls back to FastAPI messaging when it is not configured.
 - `supabase`: SQL migrations and seed data for Postgres enums, constraints, indexes, RLS policies, and sample Florida data.
 
 Vercel Services keeps the deployment practical: the frontend is served at `/`, and FastAPI routes are reached through `/api`. FastAPI route handlers do not include the `/api` prefix because Vercel strips the service route prefix before forwarding.
@@ -164,11 +165,16 @@ The migration creates:
 - `service_tickets`
 - `service_ticket_updates`
 - `activity_logs`
+- `operational_appointments`
+- `availability_thresholds`
+- `saved_views`
 - indexes for search/filtering
 - RLS helper functions and policies
 - a private `service-attachments` storage bucket
 
 Seed data lives in `supabase/seed/001_seed.sql` and contains Florida-only sample inventory, patients, assignments, returns, tickets, and activity logs.
+
+If you are applying migrations manually in the Supabase SQL Editor, run the numbered SQL files in `supabase/` in order through `008_messaging_improvements.sql`. The operations expansion is documented in `docs/operations-expansion.md`.
 
 ## Running Locally
 
@@ -203,6 +209,7 @@ Frontend:
 
 - `NEXT_PUBLIC_APP_URL`
 - `NEXT_PUBLIC_API_URL`
+- `NEXT_PUBLIC_MESSAGING_WS_URL` optional websocket URL for the Elixir messaging service
 - `NEXT_PUBLIC_SUPABASE_URL`
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
 
@@ -244,6 +251,10 @@ The current UI includes operator forms for patient creation, assignment creation
 Inventory, assignments, returns, service tickets, and repair history include CSV export for the current loaded view. Equipment detail pages include a print action for physical files, handoffs, or repair bench paperwork.
 
 Service tickets support photo/document attachments through Supabase Storage. Equipment detail pages support damage photo or condition document uploads using the private `service-attachments` bucket.
+
+Staff messaging is available from `/messages`. Conversations are stored in Supabase Postgres with per-user read state, while chat images and documents are uploaded to the private `service-attachments` bucket under the `message/` storage prefix. Unread staff messages appear in the notification center and on the notifications page.
+
+Realtime staff messaging can be accelerated with the optional Elixir service in `apps/messaging-elixir`. Deploy it to a websocket-friendly host such as Fly.io, Render, Railway, or a VPS/container host, then set `NEXT_PUBLIC_MESSAGING_WS_URL` to its `/socket` URL. Vercel remains responsible for the Next.js app and FastAPI service; the Elixir service is intentionally separate because Vercel Functions are not built for long-lived websocket connections.
 
 Overdue return reminders are implemented as a protected Vercel Cron endpoint. The route logs daily activity for return workflows that have been open longer than seven days and are not physically returned or cancelled. See `docs/notifications-cron.md`.
 

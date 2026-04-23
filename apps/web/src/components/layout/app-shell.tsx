@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Activity, Bell, ClipboardList, FileText, LayoutDashboard, PackageSearch, RotateCcw, ShieldCheck, Stethoscope, Users, Wrench } from "lucide-react";
+import { Activity, Bell, CalendarClock, ClipboardList, FileText, Gauge, LayoutDashboard, MessageCircle, PackageSearch, QrCode, RotateCcw, ShieldCheck, Stethoscope, Users, Wrench } from "lucide-react";
 
 import { ThemeToggle } from "@/components/layout/theme-toggle";
 import { AuthStatus } from "@/components/layout/auth-status";
@@ -13,9 +13,13 @@ const nav = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/inventory", label: "Inventory", icon: PackageSearch },
   { href: "/assigned", label: "Assigned", icon: ClipboardList },
+  { href: "/messages", label: "Messages", icon: MessageCircle },
+  { href: "/schedule", label: "Schedule", icon: CalendarClock },
   { href: "/returns", label: "Returns", icon: RotateCcw },
   { href: "/service-tickets", label: "Service", icon: Stethoscope },
   { href: "/repairs", label: "Repairs", icon: Wrench },
+  { href: "/availability", label: "Availability", icon: Gauge },
+  { href: "/labels", label: "QR Labels", icon: QrCode },
   { href: "/reports", label: "Reports", icon: FileText },
   { href: "/notifications", label: "Alerts", icon: Bell },
   { href: "/patients", label: "Patients", icon: Users },
@@ -25,6 +29,7 @@ const nav = [
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const mobileNav = [nav[0], nav[1], nav[3], nav[4], nav[11]];
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -69,7 +74,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </header>
         <main className="p-4 pb-24 md:p-7 lg:pb-7">{children}</main>
         <nav className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t border-border/80 bg-background/95 backdrop-blur-xl lg:hidden">
-          {nav.slice(0, 5).map((item) => {
+          {mobileNav.map((item) => {
             const Icon = item.icon;
             const active = pathname.startsWith(item.href);
             return (

@@ -211,6 +211,80 @@ export type StaffAccessRequest = {
   updated_at: string;
 };
 
+export type AppointmentKind = "delivery" | "pickup" | "service" | "return" | "inspection";
+export type AppointmentStatus = "scheduled" | "in_progress" | "completed" | "cancelled" | "no_show";
+
+export type OperationalAppointment = {
+  id: string;
+  kind: AppointmentKind;
+  status: AppointmentStatus;
+  region: FloridaRegion;
+  scheduled_start: string;
+  scheduled_end: string | null;
+  patient_id: string | null;
+  equipment_id: string | null;
+  return_id: string | null;
+  service_ticket_id: string | null;
+  assigned_to: string | null;
+  driver_name: string | null;
+  title: string;
+  location_note: string | null;
+  notes: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+  patients?: Pick<Patient, "full_name" | "date_of_birth" | "region"> | null;
+  equipment?: Pick<Equipment, "serial_number" | "make" | "model" | "equipment_type" | "status"> | null;
+};
+
+export type AvailabilitySummaryItem = {
+  region: FloridaRegion;
+  equipment_type: EquipmentType;
+  available: number;
+  total: number;
+  minimum_available: number;
+  shortage: number;
+  threshold_id: string | null;
+  notes: string | null;
+};
+
+export type SavedView = {
+  id: string;
+  user_id: string;
+  page: "inventory" | "assigned" | "returns" | "service_tickets" | "patients" | "schedule" | "reports";
+  name: string;
+  filters: Record<string, unknown>;
+  is_default: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type DeliverySetupChecklist = {
+  id: string;
+  appointment_id: string | null;
+  assignment_id: string | null;
+  equipment_id: string;
+  patient_id: string;
+  region: FloridaRegion;
+  delivered: boolean;
+  setup_completed: boolean;
+  patient_or_caregiver_instructed: boolean;
+  safe_operation_reviewed: boolean;
+  troubleshooting_reviewed: boolean;
+  cleaning_reviewed: boolean;
+  maintenance_reviewed: boolean;
+  charger_confirmed: boolean;
+  battery_charged: boolean;
+  documents_left: boolean;
+  signature_name: string | null;
+  signature_data_url: string | null;
+  signed_at: string | null;
+  notes: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 export type NotificationSeverity = "critical" | "warning" | "info";
 
 export type AttentionNotification = {
@@ -221,7 +295,8 @@ export type AttentionNotification = {
     | "return_inspection"
     | "return_restock"
     | "service_ticket"
-    | "equipment_repair";
+    | "equipment_repair"
+    | "message";
   severity: NotificationSeverity;
   title: string;
   message: string;
@@ -238,4 +313,54 @@ export type NotificationsResponse = {
     warning: number;
     info: number;
   };
+};
+
+export type MessageStaffMember = Pick<Profile, "id" | "full_name" | "role"> & {
+  is_me: boolean;
+};
+
+export type MessageThreadMember = {
+  id: string;
+  thread_id: string;
+  user_id: string;
+  last_read_at: string | null;
+  created_at: string;
+  profile: Pick<Profile, "id" | "full_name" | "role"> | null;
+};
+
+export type MessageAttachment = {
+  id: string;
+  message_id: string;
+  bucket: string;
+  storage_path: string;
+  file_name: string;
+  mime_type: string | null;
+  file_size: number | null;
+  created_at: string;
+};
+
+export type StaffMessage = {
+  id: string;
+  thread_id: string;
+  sender_id: string;
+  body: string;
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+  sender: Pick<Profile, "id" | "full_name" | "role"> | null;
+  attachments: MessageAttachment[];
+  is_mine: boolean;
+};
+
+export type MessageThread = {
+  id: string;
+  thread_type: "direct" | "group";
+  title: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+  archived_at: string | null;
+  members: MessageThreadMember[];
+  latest_message: StaffMessage | null;
+  unread_count: number;
 };

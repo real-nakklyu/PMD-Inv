@@ -11,6 +11,7 @@ from app.repositories.simple import (
     ReturnRepository,
     ServiceTicketRepository,
 )
+from app.services.audit import build_change_set
 
 RETURN_TRANSITIONS = {
     "requested": {"scheduled", "pickup_pending", "cancelled"},
@@ -60,6 +61,22 @@ class WorkflowService:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="Equipment already has an active assignment.",
+            )
+
+        active_patient_assignment = (
+            self.client.table("assignments")
+            .select("id")
+            .eq("patient_id", payload["patient_id"])
+            .in_("status", ["active", "return_in_progress"])
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        if active_patient_assignment:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="This patient already has an active equipment assignment.",
             )
 
         assignment = self.assignments.create({**payload, "created_by": actor_id})
@@ -209,6 +226,20 @@ class WorkflowService:
                     "created_by": actor_id,
                 }
             ).execute()
+        ticket_changes = build_change_set(ticket, updated, list(payload.keys()))
+        if ticket_changes:
+            self.activity.create(
+                {
+                    "event_type": "service_ticket_status_changed",
+                    "actor_id": actor_id,
+                    "equipment_id": ticket["equipment_id"],
+                    "patient_id": ticket.get("patient_id"),
+                    "assignment_id": ticket.get("assignment_id"),
+                    "service_ticket_id": ticket_id,
+                    "message": f"Service ticket status changed to {updated['status']}." if payload.get("status") else "Service ticket updated.",
+                    "metadata": {"changes": ticket_changes},
+                }
+            )
         if updated.get("repair_completed"):
             self.activity.create(
                 {

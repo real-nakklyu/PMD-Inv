@@ -60,6 +60,14 @@ class PostgrestQuery:
         self.params[column] = f"neq.{value}"
         return self
 
+    def gt(self, column: str, value: Any) -> PostgrestQuery:
+        self.params[column] = f"gt.{value}"
+        return self
+
+    def gte(self, column: str, value: Any) -> PostgrestQuery:
+        self.params[column] = f"gte.{value}"
+        return self
+
     def ilike(self, column: str, value: str) -> PostgrestQuery:
         self.params[column] = f"ilike.{value}"
         return self

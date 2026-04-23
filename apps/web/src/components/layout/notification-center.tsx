@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Bell, CheckCheck, ClipboardCheck, RotateCcw, ShieldCheck, Wrench } from "lucide-react";
+import { Bell, CheckCheck, ClipboardCheck, MessageCircle, RotateCcw, ShieldCheck, Wrench } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { apiGet } from "@/lib/api";
@@ -23,7 +23,8 @@ const kindIcons = {
   return_inspection: RotateCcw,
   return_restock: RotateCcw,
   service_ticket: ClipboardCheck,
-  equipment_repair: Wrench
+  equipment_repair: Wrench,
+  message: MessageCircle
 };
 
 export function NotificationCenter() {

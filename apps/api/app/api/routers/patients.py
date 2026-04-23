@@ -8,6 +8,7 @@ from app.db.supabase import get_supabase
 from app.repositories.simple import PatientRepository
 from app.schemas.common import florida_regions
 from app.schemas.patient import PatientCreate, PatientOut, PatientUpdate
+from app.services.audit import log_change_activity
 
 router = APIRouter(prefix="/patients", tags=["patients"])
 
@@ -96,12 +97,24 @@ def get_patient(patient_id: str, _: Annotated[AuthUser, Depends(get_current_user
 def update_patient(
     patient_id: str,
     payload: PatientUpdate,
-    _: Annotated[AuthUser, Depends(require_roles("admin", "dispatcher"))],
+    user: Annotated[AuthUser, Depends(require_roles("admin", "dispatcher"))],
 ):
-    return PatientRepository(get_supabase()).update(
-        patient_id,
-        payload.model_dump(mode="json", exclude_unset=True),
+    client = get_supabase()
+    repo = PatientRepository(client)
+    before = repo.get(patient_id)
+    data = payload.model_dump(mode="json", exclude_unset=True)
+    updated = repo.update(patient_id, data)
+    log_change_activity(
+        client,
+        event_type="patient_edited",
+        actor_id=user.id,
+        patient_id=patient_id,
+        before=before,
+        after=updated,
+        fields=list(data.keys()),
+        message=f"Patient {updated['full_name']} edited.",
     )
+    return updated
 
 
 @router.delete("/{patient_id}", status_code=http_status.HTTP_204_NO_CONTENT)

@@ -1,13 +1,14 @@
+from datetime import datetime, timezone
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, Query
-from fastapi import status as http_status
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.core.auth import AuthUser, get_current_user, require_roles
 from app.db.supabase import get_supabase
 from app.repositories.equipment import EquipmentRepository
 from app.schemas.common import EquipmentStatus, EquipmentType, FloridaRegion
 from app.schemas.equipment import EquipmentCreate, EquipmentListOut, EquipmentOut, EquipmentUpdate
+from app.services.audit import log_change_activity
 
 router = APIRouter(prefix="/equipment", tags=["equipment"])
 
@@ -132,15 +133,103 @@ def get_equipment(equipment_id: str, _: Annotated[AuthUser, Depends(get_current_
 def update_equipment(
     equipment_id: str,
     payload: EquipmentUpdate,
-    _: Annotated[AuthUser, Depends(require_roles("admin", "dispatcher"))],
+    user: Annotated[AuthUser, Depends(require_roles("admin", "dispatcher"))],
 ):
-    repo = EquipmentRepository(get_supabase())
+    client = get_supabase()
+    repo = EquipmentRepository(client)
+    before = repo.get(equipment_id)
     data = payload.model_dump(mode="json", exclude_unset=True)
     if "serial_number" in data:
         repo.ensure_serial_available(data["serial_number"], exclude_id=equipment_id)
-    return repo.update(equipment_id, data)
+    updated = repo.update(equipment_id, data)
+    log_change_activity(
+        client,
+        event_type="equipment_edited",
+        actor_id=user.id,
+        equipment_id=equipment_id,
+        before=before,
+        after=updated,
+        fields=list(data.keys()),
+        message=f"Equipment {updated['serial_number']} edited.",
+    )
+    return updated
 
 
-@router.delete("/{equipment_id}", status_code=http_status.HTTP_204_NO_CONTENT)
-def delete_equipment(equipment_id: str, _: Annotated[AuthUser, Depends(require_roles("admin"))]):
-    EquipmentRepository(get_supabase()).delete(equipment_id)
+@router.delete("/{equipment_id}")
+def delete_equipment(equipment_id: str, user: Annotated[AuthUser, Depends(require_roles("admin"))]) -> dict[str, str]:
+    client = get_supabase()
+    repo = EquipmentRepository(client)
+    before = repo.get(equipment_id)
+    dependency_counts = _equipment_dependency_counts(client, equipment_id)
+    has_workflow_history = any(dependency_counts.values())
+
+    if has_workflow_history:
+        archived = repo.update(
+            equipment_id,
+            {
+                "status": "retired",
+                "archived_at": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+        log_change_activity(
+            client,
+            event_type="equipment_edited",
+            actor_id=user.id,
+            equipment_id=equipment_id,
+            before=before,
+            after=archived,
+            fields=["status", "archived_at"],
+            message=f"Equipment {archived['serial_number']} retired and archived.",
+        )
+        return {"action": "archived", "message": "Equipment has workflow history, so it was retired and archived instead of hard-deleted."}
+
+    try:
+        repo.delete(equipment_id)
+    except HTTPException as exc:
+        if "foreign key" not in str(exc.detail).lower():
+            raise
+        archived = repo.update(
+            equipment_id,
+            {
+                "status": "retired",
+                "archived_at": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+        log_change_activity(
+            client,
+            event_type="equipment_edited",
+            actor_id=user.id,
+            equipment_id=equipment_id,
+            before=before,
+            after=archived,
+            fields=["status", "archived_at"],
+            message=f"Equipment {archived['serial_number']} retired and archived.",
+        )
+        return {"action": "archived", "message": "Equipment was retired and archived because related records still reference it."}
+
+    return {"action": "deleted", "message": "Equipment permanently deleted."}
+
+
+def _equipment_dependency_counts(client: Any, equipment_id: str) -> dict[str, int]:
+    related_tables = [
+        "assignments",
+        "returns",
+        "service_tickets",
+        "delivery_setup_checklists",
+    ]
+    counts: dict[str, int] = {}
+    for table_name in related_tables:
+        try:
+            response = (
+                client.table(table_name)
+                .select("id", count="exact", head=True)
+                .eq("equipment_id", equipment_id)
+                .execute()
+            )
+        except HTTPException as exc:
+            if "does not exist" not in str(exc.detail).lower():
+                raise
+            counts[table_name] = 0
+            continue
+        counts[table_name] = response.count or 0
+    return counts

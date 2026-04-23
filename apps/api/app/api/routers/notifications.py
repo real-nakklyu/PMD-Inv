@@ -1,7 +1,7 @@
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 
 from app.core.auth import AuthUser, get_current_user
 from app.db.supabase import get_supabase
@@ -183,6 +183,13 @@ def list_notifications(user: Annotated[AuthUser, Depends(get_current_user)]) -> 
                 )
             )
 
+    try:
+        message_notifications = _message_notifications(client, user.id)
+        notifications.extend(message_notifications)
+    except HTTPException as exc:
+        if "message_" not in str(exc.detail).lower() and "messages" not in str(exc.detail).lower():
+            raise
+
     notifications.sort(key=lambda item: (_severity_rank(item["severity"]), item["created_at"]), reverse=True)
     return {
         "items": notifications[:25],
@@ -233,3 +240,55 @@ def _equipment_label(record: dict[str, Any]) -> str:
 
 def _severity_rank(severity: str) -> int:
     return {"critical": 3, "warning": 2, "info": 1}.get(severity, 0)
+
+
+def _message_notifications(client: Any, user_id: str) -> list[dict[str, str]]:
+    memberships = (
+        client.table("message_thread_members")
+        .select("*")
+        .eq("user_id", user_id)
+        .execute()
+        .data
+        or []
+    )
+    notifications: list[dict[str, str]] = []
+    for membership in memberships:
+        thread_id = membership["thread_id"]
+        query = (
+            client.table("messages")
+            .select("id,body,sender_id,created_at", count="exact")
+            .eq("thread_id", thread_id)
+            .neq("sender_id", user_id)
+            .order("created_at", desc=True)
+            .limit(1)
+        )
+        if membership.get("last_read_at"):
+            query = query.gt("created_at", membership["last_read_at"])
+        response = query.execute()
+        unread_count = response.count or 0
+        latest = response.data[0] if response.data else None
+        if not unread_count or not latest:
+            continue
+        sender = (
+            client.table("profiles")
+            .select("full_name")
+            .eq("id", latest["sender_id"])
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        sender_name = sender[0]["full_name"] if sender else "A staff member"
+        notifications.append(
+            _notification(
+                id=f"message-unread-{thread_id}",
+                kind="message",
+                severity="info",
+                title=f"{unread_count} unread message{'s' if unread_count != 1 else ''}",
+                message=f"{sender_name} sent you a message.",
+                href=f"/messages?thread={thread_id}",
+                action_label="Open messages",
+                created_at=latest["created_at"],
+            )
+        )
+    return notifications

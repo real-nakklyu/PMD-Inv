@@ -5,9 +5,11 @@ import Link from "next/link";
 import { createColumnHelper, flexRender, getCoreRowModel, getSortedRowModel, useReactTable } from "@tanstack/react-table";
 import { ChevronLeft, ChevronRight, Download, ExternalLink, MapPin, Package, Trash2 } from "lucide-react";
 
+import { SavedViewsControl } from "@/components/operations/saved-views";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Input, Select } from "@/components/ui/input";
 import { ListSkeleton, TableSkeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/toast";
@@ -30,6 +32,7 @@ export function InventoryTable() {
   const [status, setStatus] = useState("all");
   const [type, setType] = useState("all");
   const [pageIndex, setPageIndex] = useState(0);
+  const [pendingDelete, setPendingDelete] = useState<Equipment | null>(null);
   const { toast } = useToast();
 
   const refresh = useCallback(() => {
@@ -48,10 +51,14 @@ export function InventoryTable() {
   }, [refresh]);
 
   async function deleteEquipment(item: Equipment) {
-    if (!window.confirm(`Delete equipment ${item.serial_number}? This only works when no workflow history depends on it.`)) return;
     try {
-      await apiSend(`/equipment/${item.id}`, "DELETE");
-      toast({ kind: "success", title: "Equipment deleted", description: item.serial_number });
+      const result = await apiSend<{ action: "deleted" | "archived"; message: string }>(`/equipment/${item.id}`, "DELETE");
+      toast({
+        kind: "success",
+        title: result.action === "archived" ? "Equipment retired" : "Equipment deleted",
+        description: result.action === "archived" ? `${item.serial_number} was archived because it has history.` : item.serial_number
+      });
+      setPendingDelete(null);
       refresh();
     } catch (reason) {
       const description = reason instanceof Error ? reason.message : "Unable to delete equipment.";
@@ -91,17 +98,18 @@ export function InventoryTable() {
             <Link className="inline-flex items-center gap-1 text-sm font-medium text-primary" href={`/equipment/${row.original.id}`}>
               Open <ExternalLink className="h-3 w-3" />
             </Link>
-            <Button type="button" className="h-8 w-8 bg-secondary p-0 text-secondary-foreground hover:bg-secondary/80" aria-label="Delete equipment" onClick={() => deleteEquipment(row.original)}>
+            <Button type="button" className="h-8 w-8 bg-secondary p-0 text-secondary-foreground hover:bg-secondary/80" aria-label="Delete equipment" onClick={() => setPendingDelete(row.original)}>
               <Trash2 className="h-3.5 w-3.5" />
             </Button>
           </div>
         )
       })
     ],
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     []
   );
 
+  // TanStack Table intentionally returns function-heavy objects that React Compiler cannot memoize safely.
+  // eslint-disable-next-line react-hooks/incompatible-library
   const table = useReactTable({
     data,
     columns,
@@ -141,6 +149,19 @@ export function InventoryTable() {
   return (
     <Card>
       <CardContent>
+        <div className="mb-3">
+          <SavedViewsControl
+            page="inventory"
+            filters={{ search: globalFilter, region, status, type }}
+            onApply={(filters) => {
+              setGlobalFilter(typeof filters.search === "string" ? filters.search : "");
+              setRegion(typeof filters.region === "string" ? filters.region : "all");
+              setStatus(typeof filters.status === "string" ? filters.status : "all");
+              setType(typeof filters.type === "string" ? filters.type : "all");
+              setPageIndex(0);
+            }}
+          />
+        </div>
         <div className="mb-5 grid gap-2 rounded-lg border border-border bg-muted/30 p-3 md:grid-cols-[1fr_160px_160px_160px_auto]">
           <Input value={globalFilter} placeholder="Search serial, make, model" onChange={(event) => {
             setGlobalFilter(event.target.value);
@@ -189,7 +210,7 @@ export function InventoryTable() {
 
         <div className="space-y-3 md:hidden">
           {isLoading ? <ListSkeleton rows={4} /> : table.getRowModel().rows.map((row) => (
-            <MobileInventoryCard key={row.original.id} item={row.original} onDelete={() => deleteEquipment(row.original)} />
+            <MobileInventoryCard key={row.original.id} item={row.original} onDelete={() => setPendingDelete(row.original)} />
           ))}
           {!isLoading && !table.getRowModel().rows.length ? (
             <div className="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
@@ -247,6 +268,14 @@ export function InventoryTable() {
             </Button>
           </div>
         </div>
+        <ConfirmDialog
+          open={Boolean(pendingDelete)}
+          title="Delete or retire equipment?"
+          description={`Are you sure you want to remove ${pendingDelete?.serial_number ?? "this equipment"}? If it has assignment, return, service, or label history, it will be retired and archived so the audit trail stays intact.`}
+          confirmLabel="Remove equipment"
+          onCancel={() => setPendingDelete(null)}
+          onConfirm={() => pendingDelete ? deleteEquipment(pendingDelete) : undefined}
+        />
       </CardContent>
     </Card>
   );

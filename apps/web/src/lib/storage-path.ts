@@ -1,6 +1,6 @@
 export const attachmentBucket = "service-attachments";
 
-export type AttachmentScope = "service-ticket" | "equipment-damage";
+export type AttachmentScope = "service-ticket" | "equipment-damage" | "return" | "delivery-setup" | "equipment-document" | "message";
 
 export function sanitizeStorageSegment(value: string) {
   return value

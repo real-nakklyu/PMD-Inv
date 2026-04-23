@@ -5,9 +5,11 @@ import { Download, ExternalLink, Printer, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
+import { EquipmentQrLabel } from "@/components/operations/qr-label";
 import { AttachmentUploader } from "@/components/storage/attachment-uploader";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { ListSkeleton, Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/toast";
 import { apiGet, apiSend } from "@/lib/api";
@@ -82,6 +84,7 @@ export function ReturnsList({ refreshKey = 0, onChanged }: { refreshKey?: number
   const [returns, setReturns] = useState<ReturnRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<ReturnRecord | null>(null);
   const { toast } = useToast();
   function refresh() {
     setIsLoading(true);
@@ -114,10 +117,10 @@ export function ReturnsList({ refreshKey = 0, onChanged }: { refreshKey?: number
     toast({ kind: "success", title: "Returns CSV downloaded", description: `${returns.length} records exported.` });
   }
   async function deleteReturn(item: ReturnRecord) {
-    if (!window.confirm(`Delete this return workflow?`)) return;
     try {
       await apiSend(`/returns/${item.id}`, "DELETE");
       toast({ kind: "success", title: "Return deleted" });
+      setPendingDelete(null);
       refresh();
       onChanged?.();
     } catch (reason) {
@@ -153,7 +156,7 @@ export function ReturnsList({ refreshKey = 0, onChanged }: { refreshKey?: number
             <div className="space-y-2">
               <div className="flex items-center gap-2">
                 <Badge>{item.status}</Badge>
-                <Button type="button" className="h-8 w-8 bg-secondary p-0 text-secondary-foreground hover:bg-secondary/80" aria-label="Delete return" onClick={() => deleteReturn(item)}>
+                <Button type="button" className="h-8 w-8 bg-secondary p-0 text-secondary-foreground hover:bg-secondary/80" aria-label="Delete return" onClick={() => setPendingDelete(item)}>
                   <Trash2 className="h-3.5 w-3.5" />
                 </Button>
               </div>
@@ -167,8 +170,19 @@ export function ReturnsList({ refreshKey = 0, onChanged }: { refreshKey?: number
                 <ReturnInspectionChecklist record={item} onSaved={refresh} />
               </div>
             ) : null}
+            <div className="md:col-span-2">
+              <AttachmentUploader scope="return" ownerId={item.id} label="Pickup / return documents" accept="image/*,.pdf,.doc,.docx" />
+            </div>
           </div>
         )) : <EmptyState message="No return workflows loaded." />}
+        <ConfirmDialog
+          open={Boolean(pendingDelete)}
+          title="Delete return workflow?"
+          description={`Are you sure you want to delete this return workflow${pendingDelete?.patients?.full_name ? ` for ${pendingDelete.patients.full_name}` : ""}?`}
+          confirmLabel="Delete return"
+          onCancel={() => setPendingDelete(null)}
+          onConfirm={() => pendingDelete ? deleteReturn(pendingDelete) : undefined}
+        />
       </CardContent>
     </Card>
   );
@@ -178,6 +192,7 @@ export function TicketsList({ refreshKey = 0, onChanged }: { refreshKey?: number
   const [tickets, setTickets] = useState<ServiceTicket[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<ServiceTicket | null>(null);
   const { toast } = useToast();
   function refresh() {
     setIsLoading(true);
@@ -211,10 +226,10 @@ export function TicketsList({ refreshKey = 0, onChanged }: { refreshKey?: number
     toast({ kind: "success", title: "Service tickets CSV downloaded", description: `${tickets.length} records exported.` });
   }
   async function deleteTicket(ticket: ServiceTicket) {
-    if (!window.confirm(`Delete service ticket ${ticketDisplayNumber(ticket)}?`)) return;
     try {
       await apiSend(`/service-tickets/${ticket.id}`, "DELETE");
       toast({ kind: "success", title: "Service ticket deleted", description: ticketDisplayNumber(ticket) });
+      setPendingDelete(null);
       refresh();
       onChanged?.();
     } catch (reason) {
@@ -254,12 +269,20 @@ export function TicketsList({ refreshKey = 0, onChanged }: { refreshKey?: number
               <Link className="inline-flex items-center gap-1 text-sm font-medium text-primary" href={`/service-tickets/${item.id}`}>
                 Open <ExternalLink className="h-3 w-3" />
               </Link>
-              <Button type="button" className="h-8 w-8 bg-secondary p-0 text-secondary-foreground hover:bg-secondary/80" aria-label="Delete ticket" onClick={() => deleteTicket(item)}>
+              <Button type="button" className="h-8 w-8 bg-secondary p-0 text-secondary-foreground hover:bg-secondary/80" aria-label="Delete ticket" onClick={() => setPendingDelete(item)}>
                 <Trash2 className="h-3.5 w-3.5" />
               </Button>
             </div>
           </div>
         )) : <EmptyState message="No service tickets loaded." />}
+        <ConfirmDialog
+          open={Boolean(pendingDelete)}
+          title="Delete service ticket?"
+          description={`Are you sure you want to delete ${pendingDelete ? ticketDisplayNumber(pendingDelete) : "this ticket"}? This removes its update history too.`}
+          confirmLabel="Delete ticket"
+          onCancel={() => setPendingDelete(null)}
+          onConfirm={() => pendingDelete ? deleteTicket(pendingDelete) : undefined}
+        />
       </CardContent>
     </Card>
   );
@@ -269,6 +292,7 @@ export function PatientsList({ refreshKey = 0 }: { refreshKey?: number }) {
   const [patients, setPatients] = useState<Patient[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<Patient | null>(null);
   const { toast } = useToast();
   function refresh() {
     setIsLoading(true);
@@ -284,10 +308,10 @@ export function PatientsList({ refreshKey = 0 }: { refreshKey?: number }) {
     refresh();
   }, [refreshKey]);
   async function deletePatient(item: Patient) {
-    if (!window.confirm(`Delete patient ${item.full_name}? This only works when no workflow history depends on them.`)) return;
     try {
       await apiSend(`/patients/${item.id}`, "DELETE");
       toast({ kind: "success", title: "Patient deleted", description: item.full_name });
+      setPendingDelete(null);
       refresh();
     } catch (reason) {
       const description = reason instanceof Error ? reason.message : "Unable to delete patient.";
@@ -303,7 +327,7 @@ export function PatientsList({ refreshKey = 0 }: { refreshKey?: number }) {
           <div key={item.id} className="rounded-lg border border-border p-3">
             <div className="flex items-start justify-between gap-2">
               <Link className="font-medium text-primary hover:underline" href={`/patients/${item.id}`}>{item.full_name}</Link>
-              <Button type="button" className="h-8 w-8 bg-secondary p-0 text-secondary-foreground hover:bg-secondary/80" aria-label="Delete patient" onClick={() => deletePatient(item)}>
+              <Button type="button" className="h-8 w-8 bg-secondary p-0 text-secondary-foreground hover:bg-secondary/80" aria-label="Delete patient" onClick={() => setPendingDelete(item)}>
                 <Trash2 className="h-3.5 w-3.5" />
               </Button>
             </div>
@@ -314,6 +338,14 @@ export function PatientsList({ refreshKey = 0 }: { refreshKey?: number }) {
             </div>
           </div>
         )) : <EmptyState message="No patients loaded." />}
+        <ConfirmDialog
+          open={Boolean(pendingDelete)}
+          title="Delete patient?"
+          description={`Are you sure you want to delete ${pendingDelete?.full_name ?? "this patient"}? This only works when no workflow history depends on them.`}
+          confirmLabel="Delete patient"
+          onCancel={() => setPendingDelete(null)}
+          onConfirm={() => pendingDelete ? deletePatient(pendingDelete) : undefined}
+        />
       </CardContent>
     </Card>
   );
@@ -392,6 +424,7 @@ export function EquipmentDetail({ id }: { id: string }) {
           {(detail?.activity ?? []).length ? detail?.activity.map((item) => (
             <div key={item.id} className="border-l-2 border-primary pl-3">
               <div><ActivityMessage item={item} assignments={detail?.assignments ?? []} /></div>
+              <AuditChanges item={item} />
               <div className="text-xs text-muted-foreground">{new Date(item.created_at).toLocaleString()}</div>
             </div>
           )) : (
@@ -411,6 +444,14 @@ export function EquipmentDetail({ id }: { id: string }) {
         </CardHeader>
         <CardContent>
           <AttachmentUploader scope="equipment-damage" ownerId={equipment.id} label="Damage photos / condition documents" accept="image/*,.pdf" />
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle>Label</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <EquipmentQrLabel equipmentId={equipment.id} serialNumber={equipment.serial_number} make={equipment.make} model={equipment.model} />
         </CardContent>
       </Card>
     </div>
@@ -455,6 +496,7 @@ export function PatientDetail({ id }: { id: string }) {
           {detail.activity.length ? detail.activity.map((item) => (
             <div key={item.id} className="border-l-2 border-primary pl-3 text-sm">
               <div>{item.message}</div>
+              <AuditChanges item={item} />
               <div className="text-xs text-muted-foreground">{new Date(item.created_at).toLocaleString()}</div>
             </div>
           )) : <p className="text-sm text-muted-foreground">No activity loaded.</p>}
@@ -553,6 +595,7 @@ export function ActivityList({ refreshKey = 0 }: { refreshKey?: number }) {
               <span className="text-xs text-muted-foreground">{new Date(item.created_at).toLocaleString()}</span>
             </div>
             <div className="mt-2 text-sm font-medium">{item.message}</div>
+            <AuditChanges item={item} />
             <div className="mt-1 text-xs text-muted-foreground">
               Equipment {item.equipment_id ?? "none"} / Patient {item.patient_id ?? "none"}
             </div>
@@ -561,6 +604,38 @@ export function ActivityList({ refreshKey = 0 }: { refreshKey?: number }) {
       </CardContent>
     </Card>
   );
+}
+
+function AuditChanges({ item }: { item: ActivityLog }) {
+  const changes = item.metadata?.changes;
+  if (!changes || typeof changes !== "object" || Array.isArray(changes)) return null;
+  const entries = Object.entries(changes as Record<string, { before?: unknown; after?: unknown }>).slice(0, 8);
+  if (!entries.length) return null;
+  return (
+    <div className="mt-2 rounded-md border border-border bg-muted/25 p-2 text-xs">
+      <div className="mb-1 font-semibold text-muted-foreground">Changed fields</div>
+      <div className="grid gap-1">
+        {entries.map(([field, change]) => (
+          <div key={field} className="grid gap-1 sm:grid-cols-[150px_1fr]">
+            <span className="font-medium">{humanize(field)}</span>
+            <span className="min-w-0">
+              <span className="text-muted-foreground">{formatAuditValue(change.before)}</span>
+              <span className="px-1.5 text-primary">to</span>
+              <span>{formatAuditValue(change.after)}</span>
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function formatAuditValue(value: unknown) {
+  if (value === null || value === undefined || value === "") return "empty";
+  if (typeof value === "boolean") return value ? "yes" : "no";
+  if (typeof value === "string" && value.startsWith("data:image/")) return "signature captured";
+  if (typeof value === "object") return JSON.stringify(value);
+  return String(value);
 }
 
 function LoadError({ message }: { message: string }) {
