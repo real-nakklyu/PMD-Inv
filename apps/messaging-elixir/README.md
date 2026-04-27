@@ -38,6 +38,11 @@ Set:
 - `SUPABASE_URL`
 - `SUPABASE_SERVICE_ROLE_KEY`
 
+The Docker image sets `LANG`, `LC_ALL`, and `LANGUAGE` to `C.UTF-8` so the
+Elixir/Erlang VM does not start with latin1 filename encoding. If deploying on
+Render without this Dockerfile, add `ELIXIR_ERL_OPTIONS=+fnu` in the Render
+service environment variables or set the locale variables above.
+
 Then set the deployed websocket URL in the Next.js app:
 
 ```bash

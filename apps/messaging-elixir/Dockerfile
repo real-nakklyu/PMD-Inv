@@ -1,5 +1,9 @@
 FROM hexpm/elixir:1.17.3-erlang-27.1.2-debian-bookworm-20241016-slim AS build
 
+ENV LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8 \
+    LANGUAGE=C.UTF-8
+
 RUN apt-get update && apt-get install -y build-essential git ca-certificates && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -17,7 +21,10 @@ FROM debian:bookworm-slim AS app
 RUN apt-get update && apt-get install -y openssl libstdc++6 ca-certificates && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-ENV MIX_ENV=prod
+ENV LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8 \
+    LANGUAGE=C.UTF-8 \
+    MIX_ENV=prod
 COPY --from=build /app/_build/prod/rel/pmd_messaging ./
 
 CMD ["bin/pmd_messaging", "start"]
