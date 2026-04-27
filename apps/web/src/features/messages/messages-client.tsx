@@ -49,6 +49,8 @@ export function MessagesClient() {
   const [realtimeStatus, setRealtimeStatus] = useState<RealtimeStatus>(messagingWsUrl ? "connecting" : "off");
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const messageListRef = useRef<HTMLDivElement | null>(null);
+  const shouldScrollToLatestRef = useRef(false);
   const socketRef = useRef<WebSocket | null>(null);
   const selectedThreadIdRef = useRef<string | null>(selectedThreadId);
   const threadsRef = useRef<MessageThread[]>([]);
@@ -56,6 +58,15 @@ export function MessagesClient() {
 
   const selectedThread = threads.find((thread) => thread.id === selectedThreadId) ?? null;
   const totalUnread = threads.reduce((sum, thread) => sum + thread.unread_count, 0);
+
+  const scrollToLatestMessage = useCallback((behavior: ScrollBehavior = "auto") => {
+    const list = messageListRef.current;
+    if (!list) return;
+    window.requestAnimationFrame(() => {
+      list.scrollTo({ top: list.scrollHeight, behavior });
+      window.setTimeout(() => list.scrollTo({ top: list.scrollHeight, behavior: "auto" }), 80);
+    });
+  }, []);
 
   const updateThreads = useCallback((updater: (current: MessageThread[]) => MessageThread[]) => {
     setThreads((current) => {
@@ -143,10 +154,11 @@ export function MessagesClient() {
     }
   }, [currentUser, hasLoadedStaff, isLoadingStaff]);
 
-  const loadMessages = useCallback(async (threadId: string, options: { silent?: boolean } = {}) => {
+  const loadMessages = useCallback(async (threadId: string, options: { silent?: boolean; scrollToLatest?: boolean } = {}) => {
     if (!options.silent) setIsLoadingMessages(true);
     try {
       const data = await apiGet<StaffMessage[]>(`/messages/threads/${threadId}/messages`);
+      if (!options.silent || options.scrollToLatest) shouldScrollToLatestRef.current = true;
       setMessages(data);
       setError(null);
       updateThreads((current) => current.map((thread) => thread.id === threadId ? { ...thread, unread_count: 0 } : thread));
@@ -189,9 +201,13 @@ export function MessagesClient() {
 
     setMessages((current) => {
       if (payload.temp_id && current.some((message) => message.id === payload.temp_id)) {
+        shouldScrollToLatestRef.current = true;
         return current.map((message) => message.id === payload.temp_id ? incoming : message);
       }
       if (current.some((message) => message.id === incoming.id)) return current;
+      if (incoming.is_mine || isNearMessageListBottom(messageListRef.current)) {
+        shouldScrollToLatestRef.current = true;
+      }
       return [...current, incoming];
     });
     syncThreadPreview(incoming.thread_id, incoming, { resetUnread: true });
@@ -265,6 +281,7 @@ export function MessagesClient() {
 
   useEffect(() => {
     selectedThreadIdRef.current = selectedThreadId;
+    shouldScrollToLatestRef.current = true;
     const socket = socketRef.current;
     if (selectedThreadId && socket?.readyState === WebSocket.OPEN) {
       socket.send(JSON.stringify({ type: "join_thread", thread_id: selectedThreadId }));
@@ -282,6 +299,12 @@ export function MessagesClient() {
       window.clearInterval(refresh);
     };
   }, [loadMessages, selectedThreadId]);
+
+  useEffect(() => {
+    if (!selectedThreadId || isLoadingMessages || !shouldScrollToLatestRef.current) return;
+    shouldScrollToLatestRef.current = false;
+    scrollToLatestMessage();
+  }, [isLoadingMessages, messages.length, scrollToLatestMessage, selectedThreadId]);
 
   useEffect(() => {
     async function signAttachments() {
@@ -315,7 +338,7 @@ export function MessagesClient() {
       });
       setSelectedThreadId(thread.id);
       updateThreads((current) => [thread, ...current.filter((existing) => existing.id !== thread.id)]);
-      await loadMessages(thread.id, { silent: true });
+      await loadMessages(thread.id, { silent: true, scrollToLatest: true });
       toast({ kind: "success", title: "Conversation ready", description: threadTitle(thread, currentUser?.id) });
     } catch (reason) {
       toast({ kind: "error", title: "Could not start conversation", description: reason instanceof Error ? reason.message : "Please try again." });
@@ -351,6 +374,7 @@ export function MessagesClient() {
           attachments: [],
           is_mine: true
         };
+        shouldScrollToLatestRef.current = true;
         setMessages((current) => [...current, optimisticMessage]);
         syncThreadPreview(selectedThreadId, optimisticMessage, { resetUnread: true });
         socket.send(JSON.stringify({ type: "send_message", temp_id: tempId, thread_id: selectedThreadId, body: sentBody }));
@@ -359,6 +383,7 @@ export function MessagesClient() {
 
       const message = await apiSend<StaffMessage>(`/messages/threads/${selectedThreadId}/messages`, "POST", { body: sentBody });
       const completeMessage = { ...message, body: sentBody };
+      shouldScrollToLatestRef.current = true;
       setMessages((current) => [...current, completeMessage]);
       syncThreadPreview(selectedThreadId, completeMessage, { resetUnread: true });
       if (sentFiles.length) {
@@ -573,7 +598,7 @@ export function MessagesClient() {
 
           {error ? <div className="m-4 rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200">{error}</div> : null}
 
-          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto bg-muted/20 p-3 sm:p-4">
+          <div ref={messageListRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto bg-muted/20 p-3 sm:p-4">
             {!selectedThread ? <EmptyMessages /> : null}
             {selectedThread && isLoadingMessages ? <div className="text-sm text-muted-foreground">Loading messages...</div> : null}
             {selectedThread && !isLoadingMessages && messages.length ? messages.map((message) => (
@@ -729,6 +754,11 @@ function formatUnreadMessages(count: number) {
 function shouldAutoselectThread() {
   if (typeof window === "undefined") return false;
   return window.matchMedia("(min-width: 1280px)").matches;
+}
+
+function isNearMessageListBottom(list: HTMLDivElement | null) {
+  if (!list) return true;
+  return list.scrollHeight - list.scrollTop - list.clientHeight < 140;
 }
 
 function sortThreadsByActivity(threads: MessageThread[]) {
