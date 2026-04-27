@@ -36,7 +36,14 @@ def list_assignments(
         .range(offset, offset + limit - 1)
         .execute()
     )
-    return response.data or []
+    rows = response.data or []
+    if status == "active":
+        rows = [
+            row
+            for row in rows
+            if (row.get("equipment") or {}).get("status") in {"assigned", "return_in_progress"}
+        ]
+    return rows
 
 
 @router.post("", response_model=AssignmentOut, status_code=201)

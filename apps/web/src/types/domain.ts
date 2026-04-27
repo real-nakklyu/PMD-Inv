@@ -398,6 +398,11 @@ export type AvailabilitySummaryItem = {
   total: number;
   minimum_available: number;
   shortage: number;
+  ready_available: number;
+  warehouse_hold: number;
+  idle_over_30_days: number;
+  forecasted_30_day_need: number;
+  forecasted_shortage: number;
   threshold_id: string | null;
   notes: string | null;
 };
@@ -407,12 +412,20 @@ export type AvailabilityTransferRecommendation = {
   from_region: FloridaRegion;
   to_region: FloridaRegion;
   quantity: number;
-  source_equipment: Array<Pick<Equipment, "id" | "serial_number" | "make" | "model">>;
+  source_equipment: Array<Pick<Equipment, "id" | "serial_number" | "make" | "model"> & {
+    idle_days?: number;
+    bin_location?: string | null;
+    shelf_location?: string | null;
+    condition_grade?: WarehouseConditionGrade | null;
+    readiness_status?: WarehouseReadinessStatus | null;
+  }>;
   source_available: number;
   source_minimum: number;
   destination_available: number;
   destination_minimum: number;
   destination_shortage: number;
+  idle_days: number | null;
+  readiness_note: string | null;
   reason: string;
 };
 
@@ -422,6 +435,7 @@ export type AvailabilityProcurementNeed = {
   quantity: number;
   available: number;
   minimum_available: number;
+  forecasted_30_day_need: number;
   reason: string;
 };
 
@@ -430,6 +444,7 @@ export type AvailabilityRecommendations = {
   procurement_needs: AvailabilityProcurementNeed[];
   shortage_count: number;
   healthy_count: number;
+  forecast_warning_count: number;
 };
 
 export type SavedView = {
@@ -560,6 +575,30 @@ export type HandoffNote = {
   profiles?: Pick<Profile, "full_name" | "role"> | null;
   equipment?: Pick<Equipment, "serial_number" | "make" | "model" | "status" | "region"> | null;
   patients?: Pick<Patient, "full_name" | "date_of_birth" | "region"> | null;
+};
+
+export type WarehouseConditionGrade = "new" | "ready" | "good" | "fair" | "needs_repair" | "hold" | "retired";
+export type WarehouseReadinessStatus = "ready" | "needs_cleaning" | "needs_battery" | "needs_repair" | "hold" | "retired";
+
+export type WarehouseProfile = {
+  equipment_id: string;
+  region: FloridaRegion;
+  bin_location: string | null;
+  shelf_location: string | null;
+  condition_grade: WarehouseConditionGrade;
+  readiness_status: WarehouseReadinessStatus;
+  last_received_at: string | null;
+  last_cycle_counted_at: string | null;
+  notes: string | null;
+  equipment?: Pick<Equipment, "id" | "serial_number" | "make" | "model" | "equipment_type" | "status" | "region" | "updated_at" | "added_at"> | null;
+};
+
+export type WarehouseSummary = {
+  ready: number;
+  needs_attention: number;
+  hold: number;
+  counted_last_30_days: number;
+  migration_required: boolean;
 };
 
 export type CorrectionIssue = {

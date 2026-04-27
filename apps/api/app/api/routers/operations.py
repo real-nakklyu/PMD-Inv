@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta, timezone
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Query
@@ -126,9 +127,18 @@ def availability_recommendations(_: Annotated[AuthUser, Depends(get_current_user
         .data
         or []
     )
+    warehouse_profiles = _warehouse_profiles_by_equipment(client)
     available_by_region_type: dict[tuple[str, str], list[dict[str, Any]]] = {}
     for item in available_equipment:
+        profile = warehouse_profiles.get(item["id"])
+        item["warehouse_profile"] = profile
+        item["idle_days"] = _idle_days(item)
+        item["ready_for_redeploy"] = not profile or profile.get("readiness_status") == "ready"
+        if profile and profile.get("readiness_status") not in {None, "ready"}:
+            continue
         available_by_region_type.setdefault((item["region"], item["equipment_type"]), []).append(item)
+    for key in available_by_region_type:
+        available_by_region_type[key] = sorted(available_by_region_type[key], key=lambda item: item.get("idle_days", 0), reverse=True)
 
     shortages = sorted([row for row in rows if row.shortage > 0], key=lambda item: (-item.shortage, item.region))
     surplus_by_type: dict[str, list[AvailabilitySummaryItem]] = {}
@@ -173,6 +183,11 @@ def availability_recommendations(_: Annotated[AuthUser, Depends(get_current_user
                             "serial_number": item["serial_number"],
                             "make": item["make"],
                             "model": item["model"],
+                            "idle_days": item.get("idle_days", 0),
+                            "bin_location": (item.get("warehouse_profile") or {}).get("bin_location"),
+                            "shelf_location": (item.get("warehouse_profile") or {}).get("shelf_location"),
+                            "condition_grade": (item.get("warehouse_profile") or {}).get("condition_grade"),
+                            "readiness_status": (item.get("warehouse_profile") or {}).get("readiness_status", "ready"),
                         }
                         for item in candidates
                     ],
@@ -181,6 +196,8 @@ def availability_recommendations(_: Annotated[AuthUser, Depends(get_current_user
                     destination_available=shortage.available,
                     destination_minimum=shortage.minimum_available,
                     destination_shortage=shortage.shortage,
+                    idle_days=max([item.get("idle_days", 0) for item in candidates], default=None),
+                    readiness_note="Only ready-for-redeploy units are recommended when warehouse readiness data is installed.",
                     reason=f"{source.region} has {_unit_label(surplus)} above target while {shortage.region} is short {_unit_label(shortage.shortage)}.",
                 )
             )
@@ -195,6 +212,7 @@ def availability_recommendations(_: Annotated[AuthUser, Depends(get_current_user
                     quantity=remaining_shortage,
                     available=shortage.available,
                     minimum_available=shortage.minimum_available,
+                    forecasted_30_day_need=shortage.forecasted_30_day_need,
                     reason="No matching region has enough surplus available to fully cover this shortage.",
                 )
             )
@@ -204,6 +222,7 @@ def availability_recommendations(_: Annotated[AuthUser, Depends(get_current_user
         procurement_needs=procurement_needs,
         shortage_count=len(shortages),
         healthy_count=len([row for row in rows if row.shortage == 0 and row.minimum_available > 0]),
+        forecast_warning_count=len([row for row in rows if row.forecasted_shortage > 0]),
     )
 
 
@@ -327,16 +346,36 @@ def delete_saved_view(view_id: str, user: Annotated[AuthUser, Depends(get_curren
 
 def _availability_rows() -> list[dict[str, Any]]:
     client = get_supabase()
-    equipment = client.table("equipment").select("region,equipment_type,status").is_("archived_at", "null").execute().data or []
+    equipment = client.table("equipment").select("id,region,equipment_type,status,updated_at,added_at").is_("archived_at", "null").execute().data or []
     thresholds = client.table("availability_thresholds").select("*").execute().data or []
+    warehouse_profiles = _warehouse_profiles_by_equipment(client)
+    recent_assignments = _recent_assignment_demand(client)
     threshold_map = {(item["region"], item["equipment_type"]): item for item in thresholds}
     rows: list[dict[str, Any]] = []
     for region in florida_regions:
         for equipment_type in ("power_wheelchair", "scooter"):
             matching = [item for item in equipment if item["region"] == region and item["equipment_type"] == equipment_type]
             available = len([item for item in matching if item["status"] == "available"])
+            ready_available = len(
+                [
+                    item
+                    for item in matching
+                    if item["status"] == "available"
+                    and (not warehouse_profiles.get(item["id"]) or warehouse_profiles[item["id"]].get("readiness_status") == "ready")
+                ]
+            )
+            warehouse_hold = len(
+                [
+                    item
+                    for item in matching
+                    if (warehouse_profiles.get(item["id"]) or {}).get("readiness_status") in {"hold", "needs_cleaning", "needs_battery", "needs_repair", "retired"}
+                ]
+            )
+            idle_over_30 = len([item for item in matching if item["status"] == "available" and _idle_days(item) >= 30])
             threshold = threshold_map.get((region, equipment_type))
             minimum = int(threshold.get("minimum_available", 0)) if threshold else 0
+            demand = recent_assignments.get((region, equipment_type), 0)
+            forecasted_need = max(minimum, demand)
             rows.append(
                 {
                     "region": region,
@@ -344,7 +383,12 @@ def _availability_rows() -> list[dict[str, Any]]:
                     "available": available,
                     "total": len(matching),
                     "minimum_available": minimum,
-                    "shortage": max(0, minimum - available),
+                    "shortage": max(0, minimum - ready_available),
+                    "ready_available": ready_available,
+                    "warehouse_hold": warehouse_hold,
+                    "idle_over_30_days": idle_over_30,
+                    "forecasted_30_day_need": forecasted_need,
+                    "forecasted_shortage": max(0, forecasted_need - ready_available),
                     "threshold_id": threshold.get("id") if threshold else None,
                     "notes": threshold.get("notes") if threshold else None,
                 }
@@ -354,3 +398,46 @@ def _availability_rows() -> list[dict[str, Any]]:
 
 def _unit_label(count: int) -> str:
     return f"{count} {'unit' if count == 1 else 'units'}"
+
+
+def _warehouse_profiles_by_equipment(client) -> dict[str, dict[str, Any]]:
+    try:
+        rows = client.table("warehouse_inventory_profiles").select("*").execute().data or []
+    except Exception as exc:
+        if "warehouse_inventory_profiles" not in str(exc).lower():
+            raise
+        return {}
+    return {row["equipment_id"]: row for row in rows}
+
+
+def _recent_assignment_demand(client) -> dict[tuple[str, str], int]:
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
+    try:
+        rows = (
+            client.table("assignments")
+            .select("region,equipment(equipment_type)")
+            .gte("assigned_at", cutoff)
+            .execute()
+            .data
+            or []
+        )
+    except Exception:
+        return {}
+    counts: dict[tuple[str, str], int] = {}
+    for row in rows:
+        equipment_type = (row.get("equipment") or {}).get("equipment_type")
+        if equipment_type:
+            key = (row["region"], equipment_type)
+            counts[key] = counts.get(key, 0) + 1
+    return counts
+
+
+def _idle_days(item: dict[str, Any]) -> int:
+    raw = item.get("updated_at") or item.get("added_at")
+    if not raw:
+        return 0
+    try:
+        updated = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return 0
+    return max(0, (datetime.now(timezone.utc) - updated).days)

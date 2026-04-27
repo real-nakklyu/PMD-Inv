@@ -51,3 +51,19 @@ class EquipmentCostEventRepository(SupabaseRepository):
 
 class HandoffNoteRepository(SupabaseRepository):
     table_name = "handoff_notes"
+
+
+class WarehouseInventoryRepository(SupabaseRepository):
+    table_name = "warehouse_inventory_profiles"
+
+
+class WarehouseCycleCountSessionRepository(SupabaseRepository):
+    table_name = "warehouse_cycle_count_sessions"
+
+
+class WarehouseCycleCountItemRepository(SupabaseRepository):
+    table_name = "warehouse_cycle_count_items"
+
+
+class WarehouseRedeployChecklistRepository(SupabaseRepository):
+    table_name = "warehouse_redeploy_checklists"

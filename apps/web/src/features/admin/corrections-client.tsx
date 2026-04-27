@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   AlertTriangle,
   ArchiveRestore,
@@ -34,7 +35,8 @@ import {
   type Equipment,
   type EquipmentStatus,
   type FloridaRegion,
-  type Patient
+  type Patient,
+  type ProfileMe
 } from "@/types/domain";
 
 type AssignmentSearchResult = Assignment & {
@@ -46,8 +48,11 @@ const endStatusOptions = ["available", "return_in_progress", "in_repair", "retir
 const restoreStatusOptions = ["available", "in_repair"] as const;
 
 export function CorrectionsClient() {
+  const router = useRouter();
   const [overview, setOverview] = useState<CorrectionOverview | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isCheckingAccess, setIsCheckingAccess] = useState(true);
+  const [canAccess, setCanAccess] = useState(false);
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -80,6 +85,7 @@ export function CorrectionsClient() {
   const warningCount = overview?.issues.filter((issue) => issue.severity === "warning").length ?? 0;
 
   const refresh = useCallback(() => {
+    if (!canAccess) return;
     setIsLoading(true);
     apiGet<CorrectionOverview>("/corrections/overview")
       .then((data) => {
@@ -88,12 +94,47 @@ export function CorrectionsClient() {
       })
       .catch((reason) => setError(reason instanceof Error ? reason.message : "Unable to load correction center."))
       .finally(() => setIsLoading(false));
-  }, []);
+  }, [canAccess]);
 
   useEffect(() => {
+    let cancelled = false;
+
+    apiGet<ProfileMe>("/profiles/me")
+      .then((profile) => {
+        if (cancelled) return;
+
+        const isAdmin = profile.profile?.role === "admin";
+        setCanAccess(isAdmin);
+        if (!isAdmin) {
+          toast({
+            kind: "error",
+            title: "Admin access required",
+            description: "Only admin staff can open the Data Correction Center."
+          });
+          router.replace("/dashboard");
+        }
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setCanAccess(false);
+        router.replace("/login");
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setIsCheckingAccess(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [router, toast]);
+
+  useEffect(() => {
+    if (!canAccess) return;
     const handle = window.setTimeout(refresh, 0);
     return () => window.clearTimeout(handle);
-  }, [refresh]);
+  }, [canAccess, refresh]);
 
   async function runAction<T>(action: string, request: Promise<T>, onSuccess?: () => void) {
     setBusyAction(action);
@@ -120,6 +161,20 @@ export function CorrectionsClient() {
     { label: "Movement mismatches", value: counts.movement_mismatches ?? 0, tone: "warning" },
     { label: "Retired units", value: counts.retired_equipment ?? 0, tone: "neutral" }
   ], [counts, criticalCount, warningCount]);
+
+  if (isCheckingAccess || !canAccess) {
+    return (
+      <div className="space-y-5">
+        <PageHeader title="Data Correction" description="Checking admin access before loading correction tools." />
+        <Card>
+          <CardContent className="flex items-center gap-3 p-6 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin text-primary" />
+            Verifying admin permissions...
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-5">

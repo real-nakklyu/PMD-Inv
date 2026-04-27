@@ -4,7 +4,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.schemas.common import EquipmentType, FloridaRegion
+from app.schemas.common import EquipmentStatus, EquipmentType, FloridaRegion
 
 AppointmentKind = Literal["delivery", "pickup", "service", "return", "inspection"]
 AppointmentStatus = Literal["scheduled", "in_progress", "completed", "cancelled", "no_show"]
@@ -78,6 +78,11 @@ class AvailabilitySummaryItem(BaseModel):
     total: int
     minimum_available: int
     shortage: int
+    ready_available: int = 0
+    warehouse_hold: int = 0
+    idle_over_30_days: int = 0
+    forecasted_30_day_need: int = 0
+    forecasted_shortage: int = 0
     threshold_id: UUID | None = None
     notes: str | None = None
 
@@ -93,6 +98,8 @@ class AvailabilityTransferRecommendation(BaseModel):
     destination_available: int
     destination_minimum: int
     destination_shortage: int
+    idle_days: int | None = None
+    readiness_note: str | None = None
     reason: str
 
 
@@ -102,6 +109,7 @@ class AvailabilityProcurementNeed(BaseModel):
     quantity: int
     available: int
     minimum_available: int
+    forecasted_30_day_need: int = 0
     reason: str
 
 
@@ -110,6 +118,7 @@ class AvailabilityRecommendations(BaseModel):
     procurement_needs: list[AvailabilityProcurementNeed]
     shortage_count: int
     healthy_count: int
+    forecast_warning_count: int = 0
 
 
 class SavedViewCreate(BaseModel):
@@ -163,3 +172,71 @@ class DeliverySetupChecklistOut(DeliverySetupChecklistUpsert):
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+WarehouseConditionGrade = Literal["new", "ready", "good", "fair", "needs_repair", "hold", "retired"]
+WarehouseReadinessStatus = Literal["ready", "needs_cleaning", "needs_battery", "needs_repair", "hold", "retired"]
+
+
+class WarehouseProfileUpsert(BaseModel):
+    equipment_id: UUID
+    region: FloridaRegion
+    bin_location: str | None = Field(default=None, max_length=80)
+    shelf_location: str | None = Field(default=None, max_length=80)
+    condition_grade: WarehouseConditionGrade = "good"
+    readiness_status: WarehouseReadinessStatus = "ready"
+    notes: str | None = Field(default=None, max_length=2000)
+
+
+class WarehouseProfileOut(WarehouseProfileUpsert):
+    last_received_at: datetime | None = None
+    last_cycle_counted_at: datetime | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+    equipment: dict[str, Any] | None = None
+
+
+class WarehouseBulkReceive(BaseModel):
+    serial_numbers: list[str] = Field(min_length=1, max_length=100)
+    region: FloridaRegion
+    bin_location: str | None = Field(default=None, max_length=80)
+    shelf_location: str | None = Field(default=None, max_length=80)
+    condition_grade: WarehouseConditionGrade = "good"
+    readiness_status: WarehouseReadinessStatus = "ready"
+    notes: str | None = Field(default=None, max_length=2000)
+
+
+class WarehouseCycleCountItemIn(BaseModel):
+    serial_number: str = Field(min_length=1, max_length=120)
+    found: bool = True
+    observed_status: EquipmentStatus | None = None
+    condition_grade: WarehouseConditionGrade | None = None
+    variance_note: str | None = Field(default=None, max_length=1000)
+
+
+class WarehouseCycleCountCreate(BaseModel):
+    region: FloridaRegion
+    bin_location: str | None = Field(default=None, max_length=80)
+    shelf_location: str | None = Field(default=None, max_length=80)
+    notes: str | None = Field(default=None, max_length=2000)
+    items: list[WarehouseCycleCountItemIn] = Field(min_length=1, max_length=300)
+
+
+class WarehouseRedeployChecklistUpsert(BaseModel):
+    equipment_id: UUID
+    cleaned: bool = False
+    sanitized: bool = False
+    battery_checked: bool = False
+    charger_present: bool = False
+    physical_inspection_passed: bool = False
+    paperwork_ready: bool = False
+    approved_for_redeploy: bool = False
+    notes: str | None = Field(default=None, max_length=2000)
+
+
+class WarehouseReadinessSummary(BaseModel):
+    ready: int
+    needs_attention: int
+    hold: int
+    counted_last_30_days: int
+    migration_required: bool = False

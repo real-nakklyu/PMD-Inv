@@ -31,7 +31,7 @@ def record_equipment_movement(
     if equipment_patch:
         client.table("equipment").update(equipment_patch).eq("id", movement["equipment_id"]).execute()
 
-    ended_assignment_id = _end_assignment_if_moved_out_of_patient(client, movement, equipment_before)
+    ended_assignment_ids = _end_assignments_if_moved_out_of_patient(client, movement, equipment_before)
 
     try:
         client.table("activity_logs").insert(
@@ -47,7 +47,8 @@ def record_equipment_movement(
                 "metadata": {
                     "movement_id": movement["id"],
                     "movement_type": movement["movement_type"],
-                    "ended_assignment_id": ended_assignment_id,
+                    "ended_assignment_id": ended_assignment_ids[0] if ended_assignment_ids else None,
+                    "ended_assignment_ids": ended_assignment_ids,
                     "from": {
                         "type": movement["from_location_type"],
                         "label": movement.get("from_location_label"),
@@ -152,25 +153,30 @@ def _status_from_movement(movement: dict[str, Any]) -> str | None:
 
 
 def _end_assignment_if_moved_out_of_patient(client: SupabaseRestClient, movement: dict[str, Any], equipment_before: dict[str, Any] | None) -> str | None:
+    ended_ids = _end_assignments_if_moved_out_of_patient(client, movement, equipment_before)
+    return ended_ids[0] if ended_ids else None
+
+
+def _end_assignments_if_moved_out_of_patient(client: SupabaseRestClient, movement: dict[str, Any], equipment_before: dict[str, Any] | None) -> list[str]:
     if not _movement_leaves_patient_assignment(movement, equipment_before):
-        return None
+        return []
 
     active_assignments = (
         client.table("assignments")
         .select("id")
         .eq("equipment_id", movement["equipment_id"])
         .in_("status", ["active", "return_in_progress"])
-        .limit(1)
         .execute()
         .data
         or []
     )
     if not active_assignments:
-        return None
+        return []
 
-    assignment_id = active_assignments[0]["id"]
-    client.table("assignments").update({"status": "ended", "ended_at": movement["moved_at"]}).eq("id", assignment_id).execute()
-    return assignment_id
+    ended_ids = [assignment["id"] for assignment in active_assignments]
+    for assignment_id in ended_ids:
+        client.table("assignments").update({"status": "ended", "ended_at": movement["moved_at"]}).eq("id", assignment_id).execute()
+    return ended_ids
 
 
 def _movement_leaves_patient_assignment(movement: dict[str, Any], equipment_before: dict[str, Any] | None) -> bool:

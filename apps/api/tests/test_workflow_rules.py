@@ -2,7 +2,7 @@ import pytest
 from fastapi import HTTPException
 
 from app.api.routers.equipment import _assignment_count_label, _end_active_assignments_for_equipment
-from app.services.movements import _end_assignment_if_moved_out_of_patient, _equipment_patch_from_movement
+from app.services.movements import _end_assignment_if_moved_out_of_patient, _end_assignments_if_moved_out_of_patient, _equipment_patch_from_movement
 from app.services.workflows import RETURN_TRANSITIONS, SERVICE_TRANSITIONS, _ensure_assignment_regions_match
 
 
@@ -119,7 +119,30 @@ def test_moving_equipment_out_of_patient_ends_active_assignment():
     )
 
     assert assignment_id == "a-1"
-    assert client.assignment_updates == [("a-1", {"status": "ended", "ended_at": "2026-04-27T12:00:00+00:00"})]
+    assert client.assignment_updates == [
+        ("a-1", {"status": "ended", "ended_at": "2026-04-27T12:00:00+00:00"}),
+        ("a-2", {"status": "ended", "ended_at": "2026-04-27T12:00:00+00:00"}),
+    ]
+
+
+def test_moving_equipment_out_of_patient_ends_all_duplicate_active_assignments():
+    client = FakeSupabaseClient()
+    assignment_ids = _end_assignments_if_moved_out_of_patient(
+        client,
+        {
+            "equipment_id": "eq-1",
+            "from_location_type": "patient",
+            "to_location_type": "warehouse",
+            "moved_at": "2026-04-27T12:00:00+00:00",
+        },
+        {"status": "assigned"},
+    )
+
+    assert assignment_ids == ["a-1", "a-2"]
+    assert client.assignment_updates == [
+        ("a-1", {"status": "ended", "ended_at": "2026-04-27T12:00:00+00:00"}),
+        ("a-2", {"status": "ended", "ended_at": "2026-04-27T12:00:00+00:00"}),
+    ]
 
 
 class FakeSupabaseClient:

@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Activity, Bell, CalendarClock, ClipboardList, DatabaseZap, FileText, Gauge, LayoutDashboard, Menu, MessageCircle, NotebookPen, PackageSearch, QrCode, RotateCcw, ShieldAlert, ShieldCheck, Smartphone, Stethoscope, Users, Wrench, X } from "lucide-react";
+import { Activity, Bell, CalendarClock, ClipboardList, DatabaseZap, FileText, Gauge, LayoutDashboard, Menu, MessageCircle, NotebookPen, PackageSearch, QrCode, RotateCcw, ShieldAlert, ShieldCheck, Smartphone, Stethoscope, Users, Warehouse, Wrench, X } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { ThemeToggle } from "@/components/layout/theme-toggle";
@@ -12,11 +13,18 @@ import { NotificationCenter } from "@/components/layout/notification-center";
 import { Button } from "@/components/ui/button";
 import { apiGet } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import type { MessageThread } from "@/types/domain";
+import type { MessageThread, ProfileMe, StaffRole } from "@/types/domain";
 
 const messageUnreadEventName = "pmdinv:message-unread-count";
 
-const nav = [
+type NavItem = {
+  href: string;
+  label: string;
+  icon: LucideIcon;
+  roles?: StaffRole[];
+};
+
+const nav: NavItem[] = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/inventory", label: "Inventory", icon: PackageSearch },
   { href: "/assigned", label: "Assigned", icon: ClipboardList },
@@ -28,13 +36,14 @@ const nav = [
   { href: "/service-tickets", label: "Service", icon: Stethoscope },
   { href: "/repairs", label: "Repairs", icon: Wrench },
   { href: "/availability", label: "Availability", icon: Gauge },
+  { href: "/warehouse", label: "Warehouse", icon: Warehouse },
   { href: "/labels", label: "QR Labels", icon: QrCode },
   { href: "/reports", label: "Reports", icon: FileText },
   { href: "/notifications", label: "Alerts", icon: Bell },
   { href: "/quality", label: "Quality", icon: DatabaseZap },
   { href: "/patients", label: "Patients", icon: Users },
   { href: "/activity", label: "Activity", icon: Activity },
-  { href: "/corrections", label: "Corrections", icon: ShieldAlert },
+  { href: "/corrections", label: "Corrections", icon: ShieldAlert, roles: ["admin"] },
   { href: "/staff", label: "Staff", icon: ShieldCheck }
 ];
 
@@ -42,6 +51,27 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const [messageUnreadCount, setMessageUnreadCount] = useState(0);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [staffRole, setStaffRole] = useState<StaffRole | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    apiGet<ProfileMe>("/profiles/me")
+      .then((profile) => {
+        if (!cancelled) {
+          setStaffRole(profile.profile?.role ?? null);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setStaffRole(null);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -94,6 +124,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     };
   }, [pathname]);
 
+  const visibleNav = nav.filter((item) => !item.roles || (staffRole ? item.roles.includes(staffRole) : false));
+
   return (
     <div className="min-h-screen bg-background text-foreground">
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-[17rem] border-r border-border/80 bg-sidebar/95 backdrop-blur lg:block">
@@ -104,7 +136,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         </div>
         <nav className="space-y-1 p-3.5">
-          {nav.map((item) => {
+          {visibleNav.map((item) => {
             const Icon = item.icon;
             const active = pathname.startsWith(item.href.split("/")[1] ? `/${item.href.split("/")[1]}` : item.href);
             return (
@@ -173,6 +205,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <MobileNavigationDrawer
           open={mobileMenuOpen}
           pathname={pathname}
+          navItems={visibleNav}
           messageUnreadCount={messageUnreadCount}
           onClose={() => setMobileMenuOpen(false)}
         />
@@ -185,11 +218,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 function MobileNavigationDrawer({
   open,
   pathname,
+  navItems,
   messageUnreadCount,
   onClose
 }: {
   open: boolean;
   pathname: string;
+  navItems: NavItem[];
   messageUnreadCount: number;
   onClose: () => void;
 }) {
@@ -217,7 +252,7 @@ function MobileNavigationDrawer({
           </Button>
         </div>
         <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto p-3.5">
-          {nav.map((item) => {
+          {navItems.map((item) => {
             const Icon = item.icon;
             const active = pathname.startsWith(item.href.split("/")[1] ? `/${item.href.split("/")[1]}` : item.href);
             return (

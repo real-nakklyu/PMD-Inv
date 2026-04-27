@@ -284,6 +284,8 @@ Realtime staff messaging can be accelerated with the optional Elixir service in 
 
 Admin-only data correction tools are available at `/corrections`. They let admins end stale assignments, fix equipment regions, retire or restore equipment, reconcile movement history, and merge duplicate patients while automatically writing audit activity. See [docs/admin-corrections.md](/C:/Users/User/Desktop/PMDInv/docs/admin-corrections.md).
 
+Warehouse Mode is available at `/warehouse` for bulk receiving, bin/shelf tracking, condition grading, cycle counts, and redeploy readiness checklists. Availability intelligence at `/availability` uses readiness, idle inventory, threshold shortages, and recent assignment demand to recommend exact transfer candidates. See [docs/warehouse-and-rebalancing.md](/C:/Users/User/Desktop/PMDInv/docs/warehouse-and-rebalancing.md).
+
 Overdue return reminders are implemented as a protected Vercel Cron endpoint. The route logs daily activity for return workflows that have been open longer than seven days and are not physically returned or cancelled. See `docs/notifications-cron.md`.
 
 ## Barcode Scanning Approach

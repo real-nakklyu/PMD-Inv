@@ -83,7 +83,7 @@ export function AvailabilityClient() {
       <div className="grid gap-3 md:grid-cols-3">
         <SummaryCard label="Rules configured" value={rows.filter((row) => row.minimum_available > 0).length} />
         <SummaryCard label="Below target" value={shortages.length} tone={shortages.length ? "danger" : "good"} />
-        <SummaryCard label="Available units tracked" value={rows.reduce((sum, row) => sum + row.available, 0)} />
+        <SummaryCard label="Ready units tracked" value={rows.reduce((sum, row) => sum + (row.ready_available ?? row.available), 0)} />
       </div>
       <AvailabilityIntelligence recommendations={recommendations} isLoading={isLoading} />
       <div className="grid gap-5 xl:grid-cols-[1fr_360px]">
@@ -106,8 +106,10 @@ export function AvailabilityClient() {
                       <tr className="border-b border-border text-left text-muted-foreground">
                         <th className="px-4 py-3">Region</th>
                         <th className="px-4 py-3">Type</th>
-                        <th className="px-4 py-3">Available</th>
+                        <th className="px-4 py-3">Ready / Available</th>
                         <th className="px-4 py-3">Minimum</th>
+                        <th className="px-4 py-3">Forecast</th>
+                        <th className="px-4 py-3">Warehouse</th>
                         <th className="px-4 py-3">Health</th>
                         <th className="px-4 py-3" />
                       </tr>
@@ -117,8 +119,16 @@ export function AvailabilityClient() {
                         <tr key={`${row.region}-${row.equipment_type}`} className="border-b border-border last:border-0 hover:bg-muted/40">
                           <td className="px-4 py-3 font-medium">{row.region}</td>
                           <td className="px-4 py-3">{humanize(row.equipment_type)}</td>
-                          <td className="px-4 py-3">{row.available} / {row.total}</td>
+                          <td className="px-4 py-3">{row.ready_available ?? row.available} / {row.available} <span className="text-xs text-muted-foreground">available</span></td>
                           <td className="px-4 py-3">{row.minimum_available}</td>
+                          <td className="px-4 py-3">
+                            <div>{row.forecasted_30_day_need ?? 0} need</div>
+                            {(row.forecasted_shortage ?? 0) > 0 ? <div className="text-xs font-medium text-amber-700 dark:text-amber-300">{row.forecasted_shortage} forecast short</div> : null}
+                          </td>
+                          <td className="px-4 py-3">
+                            <div>{row.idle_over_30_days ?? 0} idle 30d+</div>
+                            {(row.warehouse_hold ?? 0) > 0 ? <div className="text-xs font-medium text-amber-700 dark:text-amber-300">{row.warehouse_hold} not ready</div> : null}
+                          </td>
                           <td className="px-4 py-3">
                             {row.shortage ? <Badge className="border-red-300 bg-red-50 text-red-800 dark:border-red-700 dark:bg-red-950 dark:text-red-200">Short {pluralize(row.shortage, "unit")}</Badge> : <Badge className="border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-200">OK</Badge>}
                           </td>
@@ -175,6 +185,11 @@ function findOrCreateRow(rows: AvailabilitySummaryItem[], region: FloridaRegion,
     total: 0,
     minimum_available: 0,
     shortage: 0,
+    ready_available: 0,
+    warehouse_hold: 0,
+    idle_over_30_days: 0,
+    forecasted_30_day_need: 0,
+    forecasted_shortage: 0,
     threshold_id: null,
     notes: null
   };
@@ -198,6 +213,7 @@ function AvailabilityIntelligence({ recommendations, isLoading }: { recommendati
               <Badge className={recommendations.shortage_count ? "border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-100" : "border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-200"}>
                 {pluralize(recommendations.shortage_count, "shortage")}
               </Badge>
+              {recommendations.forecast_warning_count ? <Badge className="border-blue-300 bg-blue-50 text-blue-800 dark:border-blue-700 dark:bg-blue-950 dark:text-blue-100">{pluralize(recommendations.forecast_warning_count, "forecast warning")}</Badge> : null}
             </div>
           ) : null}
         </div>
@@ -236,7 +252,11 @@ function AvailabilityIntelligence({ recommendations, isLoading }: { recommendati
                         >
                           <span className="min-w-0">
                             <span className="block truncate font-medium text-foreground">{equipment.serial_number}</span>
-                            <span className="block truncate text-xs text-muted-foreground">{equipment.make} {equipment.model}</span>
+                            <span className="block truncate text-xs text-muted-foreground">
+                              {equipment.make} {equipment.model}
+                              {equipment.idle_days ? ` / idle ${equipment.idle_days}d` : ""}
+                              {equipment.bin_location || equipment.shelf_location ? ` / ${equipment.bin_location ?? "No bin"} ${equipment.shelf_location ?? ""}` : ""}
+                            </span>
                           </span>
                           <span className="inline-flex shrink-0 items-center gap-1 text-xs font-semibold text-primary">
                             Move unit <ArrowRight className="h-3.5 w-3.5 transition group-hover:translate-x-0.5" />
@@ -263,7 +283,7 @@ function AvailabilityIntelligence({ recommendations, isLoading }: { recommendati
                     <Badge className="border-amber-300 bg-amber-100 text-amber-950 dark:border-amber-700 dark:bg-amber-900 dark:text-amber-100">Need {pluralize(item.quantity, "unit")}</Badge>
                     <span className="font-medium">{item.region} {humanize(item.equipment_type)}</span>
                   </div>
-                  <p className="mt-2 text-sm opacity-85">{item.reason}</p>
+                  <p className="mt-2 text-sm opacity-85">{item.reason} Forecast need: {item.forecasted_30_day_need}.</p>
                 </div>
               )) : (
                 <div className="rounded-md border border-dashed border-border p-4 text-sm text-muted-foreground">
