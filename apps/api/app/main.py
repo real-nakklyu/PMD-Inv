@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routers import activity, assignments, costs, cron, dashboard, equipment, handoff, health, maintenance, messages, movements, notifications, operations, patients, profiles, returns, search, service_tickets
+from app.api.routers import activity, assignments, corrections, costs, cron, dashboard, equipment, handoff, health, maintenance, messages, movements, notifications, operations, patients, profiles, returns, search, service_tickets
 from app.core.settings import get_settings
 
 settings = get_settings()
@@ -25,6 +25,7 @@ app.include_router(profiles.router)
 app.include_router(dashboard.router)
 app.include_router(notifications.router)
 app.include_router(messages.router)
+app.include_router(corrections.router)
 app.include_router(maintenance.router)
 app.include_router(movements.router)
 app.include_router(costs.router)

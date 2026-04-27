@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Activity, Bell, CalendarClock, ClipboardList, DatabaseZap, FileText, Gauge, LayoutDashboard, Menu, MessageCircle, NotebookPen, PackageSearch, QrCode, RotateCcw, ShieldCheck, Smartphone, Stethoscope, Users, Wrench, X } from "lucide-react";
+import { Activity, Bell, CalendarClock, ClipboardList, DatabaseZap, FileText, Gauge, LayoutDashboard, Menu, MessageCircle, NotebookPen, PackageSearch, QrCode, RotateCcw, ShieldAlert, ShieldCheck, Smartphone, Stethoscope, Users, Wrench, X } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { ThemeToggle } from "@/components/layout/theme-toggle";
@@ -34,6 +34,7 @@ const nav = [
   { href: "/quality", label: "Quality", icon: DatabaseZap },
   { href: "/patients", label: "Patients", icon: Users },
   { href: "/activity", label: "Activity", icon: Activity },
+  { href: "/corrections", label: "Corrections", icon: ShieldAlert },
   { href: "/staff", label: "Staff", icon: ShieldCheck }
 ];
 

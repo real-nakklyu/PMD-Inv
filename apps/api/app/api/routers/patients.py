@@ -21,7 +21,7 @@ def list_patients(
     offset: int = 0,
 ):
     repo = PatientRepository(get_supabase())
-    query = repo.table.select("*")
+    query = repo.table.select("*").is_("archived_at", "null")
     if search:
         term = search.replace(",", " ").strip()
         matching_regions = [region for region in florida_regions if term.lower() in region.lower()]

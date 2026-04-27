@@ -4,7 +4,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.core.settings import get_settings
-from app.core.auth import AuthUser, get_authenticated_user, get_current_user, require_roles
+from app.core.auth import AuthUser, get_authenticated_user, require_roles
 from app.db.supabase import get_supabase
 from app.schemas.profile import (
     ProfileBootstrap,

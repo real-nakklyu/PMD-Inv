@@ -43,6 +43,7 @@ export type Equipment = {
   added_at: string;
   assigned_at: string | null;
   notes: string | null;
+  archived_at?: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -59,6 +60,7 @@ export type Patient = {
   full_name: string;
   date_of_birth: string;
   region: FloridaRegion;
+  archived_at?: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -558,6 +560,21 @@ export type HandoffNote = {
   profiles?: Pick<Profile, "full_name" | "role"> | null;
   equipment?: Pick<Equipment, "serial_number" | "make" | "model" | "status" | "region"> | null;
   patients?: Pick<Patient, "full_name" | "date_of_birth" | "region"> | null;
+};
+
+export type CorrectionIssue = {
+  id: string;
+  severity: NotificationSeverity;
+  title: string;
+  detail: string;
+  action: string;
+  href: string | null;
+};
+
+export type CorrectionOverview = {
+  counts: Record<string, number>;
+  issues: CorrectionIssue[];
+  recent_corrections: ActivityLog[];
 };
 
 export type MessageStaffMember = Pick<Profile, "id" | "full_name" | "role"> & {

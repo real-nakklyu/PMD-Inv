@@ -44,6 +44,7 @@ def global_search(
     patients = (
         client.table("patients")
         .select("id,full_name,date_of_birth,region")
+        .is_("archived_at", "null")
         .ilike("full_name", pattern)
         .limit(8)
         .execute()

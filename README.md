@@ -282,6 +282,8 @@ Staff messaging is available from `/messages`. Conversations are stored in Supab
 
 Realtime staff messaging can be accelerated with the optional Elixir service in `apps/messaging-elixir`. Deploy it to a websocket-friendly host such as Fly.io, Render, Railway, or a VPS/container host, then set `NEXT_PUBLIC_MESSAGING_WS_URL` to its `/socket` URL. Vercel remains responsible for the Next.js app and FastAPI service; the Elixir service is intentionally separate because Vercel Functions are not built for long-lived websocket connections.
 
+Admin-only data correction tools are available at `/corrections`. They let admins end stale assignments, fix equipment regions, retire or restore equipment, reconcile movement history, and merge duplicate patients while automatically writing audit activity. See [docs/admin-corrections.md](/C:/Users/User/Desktop/PMDInv/docs/admin-corrections.md).
+
 Overdue return reminders are implemented as a protected Vercel Cron endpoint. The route logs daily activity for return workflows that have been open longer than seven days and are not physically returned or cancelled. See `docs/notifications-cron.md`.
 
 ## Barcode Scanning Approach
