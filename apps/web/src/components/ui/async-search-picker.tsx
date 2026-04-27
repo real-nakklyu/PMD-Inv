@@ -10,6 +10,7 @@ export type SearchPickerOption = {
   id: string;
   label: string;
   description?: string;
+  region?: string;
 };
 
 export function AsyncSearchPicker({

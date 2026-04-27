@@ -15,6 +15,7 @@ import {
   type SelectHTMLAttributes,
   type TextareaHTMLAttributes
 } from "react";
+import { createPortal } from "react-dom";
 
 import { cn } from "@/lib/utils";
 
@@ -42,7 +43,9 @@ export const Select = forwardRef<HTMLSelectElement, SelectHTMLAttributes<HTMLSel
   const [open, setOpen] = useState(false);
   const [internalValue, setInternalValue] = useState(String(value ?? defaultValue ?? ""));
   const [activeIndex, setActiveIndex] = useState(0);
+  const [menuPosition, setMenuPosition] = useState<{ top: number; left: number; width: number } | null>(null);
   const rootRef = useRef<HTMLSpanElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
   const selectRef = useRef<HTMLSelectElement | null>(null);
   const typeaheadRef = useRef("");
   const typeaheadTimerRef = useRef<number | null>(null);
@@ -75,7 +78,8 @@ export const Select = forwardRef<HTMLSelectElement, SelectHTMLAttributes<HTMLSel
 
   useEffect(() => {
     function closeOnOutsideClick(event: MouseEvent) {
-      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+      const target = event.target as Node;
+      if (!rootRef.current?.contains(target) && !menuRef.current?.contains(target)) setOpen(false);
     }
     document.addEventListener("mousedown", closeOnOutsideClick);
     return () => document.removeEventListener("mousedown", closeOnOutsideClick);
@@ -84,6 +88,29 @@ export const Select = forwardRef<HTMLSelectElement, SelectHTMLAttributes<HTMLSel
   useEffect(() => {
     if (open) setActiveIndex(selectedIndex);
   }, [open, selectedIndex]);
+
+  useEffect(() => {
+    if (!open) return;
+
+    function updateMenuPosition() {
+      const button = rootRef.current?.querySelector("button");
+      const rect = button?.getBoundingClientRect();
+      if (!rect) return;
+      setMenuPosition({
+        top: rect.bottom + 4,
+        left: rect.left,
+        width: rect.width
+      });
+    }
+
+    updateMenuPosition();
+    window.addEventListener("resize", updateMenuPosition);
+    window.addEventListener("scroll", updateMenuPosition, true);
+    return () => {
+      window.removeEventListener("resize", updateMenuPosition);
+      window.removeEventListener("scroll", updateMenuPosition, true);
+    };
+  }, [open]);
 
   useEffect(() => {
     return () => {
@@ -199,11 +226,17 @@ export const Select = forwardRef<HTMLSelectElement, SelectHTMLAttributes<HTMLSel
           <ChevronDown className={cn("h-4 w-4 transition-transform duration-200", open && "rotate-180")} />
         </span>
       </button>
-      {open ? (
+      {open && typeof document !== "undefined" ? createPortal((
         <div
+          ref={menuRef}
           role="listbox"
           aria-labelledby={id}
-          className="absolute left-0 right-0 top-11 z-50 max-h-64 overflow-y-auto rounded-md border border-border bg-card p-1.5 text-sm shadow-xl shadow-slate-950/10"
+          style={{
+            left: menuPosition?.left ?? 0,
+            top: menuPosition?.top ?? 0,
+            width: menuPosition?.width ?? 0
+          }}
+          className="fixed z-[100] max-h-64 overflow-y-auto rounded-md border border-border bg-card p-1.5 text-sm shadow-xl shadow-slate-950/10"
         >
           {options.map((option, index) => {
             const selected = option.value === selectedValue;
@@ -228,7 +261,7 @@ export const Select = forwardRef<HTMLSelectElement, SelectHTMLAttributes<HTMLSel
             );
           })}
         </div>
-      ) : null}
+      ), document.body) : null}
     </span>
   );
 });

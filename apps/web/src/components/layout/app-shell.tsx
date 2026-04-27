@@ -2,11 +2,12 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Activity, Bell, CalendarClock, ClipboardList, FileText, Gauge, LayoutDashboard, Menu, MessageCircle, PackageSearch, QrCode, RotateCcw, ShieldCheck, Stethoscope, Users, Wrench, X } from "lucide-react";
+import { Activity, Bell, CalendarClock, ClipboardList, DatabaseZap, FileText, Gauge, LayoutDashboard, Menu, MessageCircle, NotebookPen, PackageSearch, QrCode, RotateCcw, ShieldCheck, Smartphone, Stethoscope, Users, Wrench, X } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { ThemeToggle } from "@/components/layout/theme-toggle";
 import { AuthStatus } from "@/components/layout/auth-status";
+import { GlobalSearch } from "@/components/layout/global-search";
 import { NotificationCenter } from "@/components/layout/notification-center";
 import { Button } from "@/components/ui/button";
 import { apiGet } from "@/lib/api";
@@ -21,6 +22,8 @@ const nav = [
   { href: "/assigned", label: "Assigned", icon: ClipboardList },
   { href: "/messages", label: "Messages", icon: MessageCircle },
   { href: "/schedule", label: "Schedule", icon: CalendarClock },
+  { href: "/handoff", label: "Handoff", icon: NotebookPen },
+  { href: "/field", label: "Field Mode", icon: Smartphone },
   { href: "/returns", label: "Returns", icon: RotateCcw },
   { href: "/service-tickets", label: "Service", icon: Stethoscope },
   { href: "/repairs", label: "Repairs", icon: Wrench },
@@ -28,6 +31,7 @@ const nav = [
   { href: "/labels", label: "QR Labels", icon: QrCode },
   { href: "/reports", label: "Reports", icon: FileText },
   { href: "/notifications", label: "Alerts", icon: Bell },
+  { href: "/quality", label: "Quality", icon: DatabaseZap },
   { href: "/patients", label: "Patients", icon: Users },
   { href: "/activity", label: "Activity", icon: Activity },
   { href: "/staff", label: "Staff", icon: ShieldCheck }
@@ -40,6 +44,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     let cancelled = false;
+    const isMessagesPage = pathname.startsWith("/messages");
 
     async function loadMessageUnreadCount() {
       try {
@@ -67,20 +72,26 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       }
     }
 
-    loadMessageUnreadCount();
-    const refresh = window.setInterval(loadMessageUnreadCount, 30_000);
     window.addEventListener(messageUnreadEventName, handleMessageUnreadEvent);
-    window.addEventListener("focus", loadMessageUnreadCount);
-    document.addEventListener("visibilitychange", handleVisibilityChange);
+    if (!isMessagesPage) {
+      loadMessageUnreadCount();
+      window.addEventListener("focus", loadMessageUnreadCount);
+      document.addEventListener("visibilitychange", handleVisibilityChange);
+    }
+    const refresh = isMessagesPage ? null : window.setInterval(loadMessageUnreadCount, 30_000);
 
     return () => {
       cancelled = true;
-      window.clearInterval(refresh);
+      if (refresh) {
+        window.clearInterval(refresh);
+      }
       window.removeEventListener(messageUnreadEventName, handleMessageUnreadEvent);
-      window.removeEventListener("focus", loadMessageUnreadCount);
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      if (!isMessagesPage) {
+        window.removeEventListener("focus", loadMessageUnreadCount);
+        document.removeEventListener("visibilitychange", handleVisibilityChange);
+      }
     };
-  }, []);
+  }, [pathname]);
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -141,6 +152,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
+            <GlobalSearch />
             <Link
               href="/messages"
               className={cn(

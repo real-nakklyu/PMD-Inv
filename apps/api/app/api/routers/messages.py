@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 from typing import Annotated, Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.core.auth import AuthUser, get_current_user
 from app.db.supabase import get_supabase
@@ -12,12 +12,16 @@ router = APIRouter(prefix="/messages", tags=["messages"])
 
 
 @router.get("/staff")
-def list_message_staff(user: Annotated[AuthUser, Depends(get_current_user)]) -> list[dict[str, Any]]:
+def list_message_staff(
+    user: Annotated[AuthUser, Depends(get_current_user)],
+    limit: Annotated[int, Query(ge=1, le=200)] = 100,
+) -> list[dict[str, Any]]:
     response = (
         get_supabase()
         .table("profiles")
         .select("id,full_name,role,created_at")
         .order("full_name")
+        .limit(limit)
         .execute()
     )
     return [
@@ -32,6 +36,12 @@ def list_message_staff(user: Annotated[AuthUser, Depends(get_current_user)]) -> 
 @router.get("/threads")
 def list_threads(user: Annotated[AuthUser, Depends(get_current_user)]) -> list[dict[str, Any]]:
     client = get_supabase()
+    try:
+        response = client.rpc("list_message_threads", {"requesting_user_id": str(user.id)})
+        return response.data or []
+    except HTTPException:
+        pass
+
     memberships = (
         client.table("message_thread_members")
         .select("*")

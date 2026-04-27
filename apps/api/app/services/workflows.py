@@ -14,15 +14,15 @@ from app.repositories.simple import (
 from app.services.audit import build_change_set
 
 RETURN_TRANSITIONS = {
-    "requested": {"scheduled", "pickup_pending", "cancelled"},
-    "scheduled": {"pickup_pending", "in_transit", "cancelled"},
-    "pickup_pending": {"in_transit", "cancelled"},
-    "in_transit": {"received", "cancelled"},
-    "received": {"inspected"},
-    "inspected": {"restocked", "closed"},
-    "restocked": {"closed"},
-    "closed": set(),
-    "cancelled": set(),
+    "requested": {"requested", "scheduled", "pickup_pending", "in_transit", "received", "inspected", "restocked", "closed", "cancelled"},
+    "scheduled": {"requested", "scheduled", "pickup_pending", "in_transit", "received", "inspected", "restocked", "closed", "cancelled"},
+    "pickup_pending": {"requested", "scheduled", "pickup_pending", "in_transit", "received", "inspected", "restocked", "closed", "cancelled"},
+    "in_transit": {"requested", "scheduled", "pickup_pending", "in_transit", "received", "inspected", "restocked", "closed", "cancelled"},
+    "received": {"requested", "scheduled", "pickup_pending", "in_transit", "received", "inspected", "restocked", "closed", "cancelled"},
+    "inspected": {"requested", "scheduled", "pickup_pending", "in_transit", "received", "inspected", "restocked", "closed", "cancelled"},
+    "restocked": {"requested", "scheduled", "pickup_pending", "in_transit", "received", "inspected", "restocked", "closed", "cancelled"},
+    "closed": {"requested", "scheduled", "pickup_pending", "in_transit", "received", "inspected", "restocked", "closed", "cancelled"},
+    "cancelled": {"requested", "scheduled", "pickup_pending", "in_transit", "received", "inspected", "restocked", "closed", "cancelled"},
 }
 
 SERVICE_TRANSITIONS = {
@@ -56,6 +56,10 @@ class WorkflowService:
                 status_code=status.HTTP_409_CONFLICT,
                 detail="Only available equipment can be assigned.",
             )
+
+        patient = _get_patient_for_assignment(self.client, payload["patient_id"])
+        _ensure_assignment_regions_match(equipment, patient)
+        payload = {**payload, "region": patient["region"]}
 
         if self.equipment.get_active_assignment(payload["equipment_id"]):
             raise HTTPException(
@@ -149,11 +153,8 @@ class WorkflowService:
         if next_status == "received":
             payload["received_at"] = now_iso()
         if next_status == "closed":
-            if not return_record.get("received_at") and current not in {"received", "inspected", "restocked"}:
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail="Return cannot close before the unit has been received.",
-                )
+            if not return_record.get("received_at"):
+                payload["received_at"] = now_iso()
             payload["closed_at"] = now_iso()
         if next_status == "restocked":
             inspection = (
@@ -253,3 +254,24 @@ class WorkflowService:
                 }
             )
         return updated
+
+
+def _get_patient_for_assignment(client: SupabaseRestClient, patient_id: str) -> dict[str, Any]:
+    patient = client.table("patients").select("id,full_name,region").eq("id", patient_id).single().execute().data
+    if not patient:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Patient not found.")
+    return patient
+
+
+def _ensure_assignment_regions_match(equipment: dict[str, Any], patient: dict[str, Any]) -> None:
+    equipment_region = equipment.get("region")
+    patient_region = patient.get("region")
+    if equipment_region == patient_region:
+        return
+    raise HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail=(
+            f"Equipment is currently in {equipment_region}, but the patient is in {patient_region}. "
+            f"Record a movement to {patient_region} before assigning this item."
+        ),
+    )

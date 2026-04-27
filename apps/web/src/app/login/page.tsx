@@ -1,13 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import { KeyRound, Loader2, UserPlus } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { apiSend } from "@/lib/api";
+import { ApiError, apiSend } from "@/lib/api";
 import { createSupabaseBrowserClient, hasSupabaseBrowserEnv } from "@/lib/supabase";
 
 const pendingRequestKey = "pmdinv.pendingAccessRequest";
@@ -19,7 +18,6 @@ type PendingAccessRequest = {
 };
 
 export default function LoginPage() {
-  const router = useRouter();
   const [mode, setMode] = useState<"signin" | "signup" | "forgot">("signin");
   const [nextPath, setNextPath] = useState("/dashboard");
   const [fullName, setFullName] = useState("");
@@ -60,15 +58,24 @@ export default function LoginPage() {
       try {
         await apiSend("/profiles/access-requests", "POST", pendingRequest);
         window.localStorage.removeItem(pendingRequestKey);
-        router.push("/pending-approval");
+        navigateAfterAuth("/pending-approval");
         return;
       } catch (requestError) {
+        if (
+          requestError instanceof ApiError &&
+          requestError.status === 409 &&
+          requestError.message.includes("already")
+        ) {
+          window.localStorage.removeItem(pendingRequestKey);
+          navigateAfterAuth(nextPath);
+          return;
+        }
         setMessage(requestError instanceof Error ? requestError.message : "Signed in, but the approval request could not be submitted.");
         setIsSubmitting(false);
         return;
       }
     }
-    router.push(nextPath);
+    navigateAfterAuth(nextPath);
   }
 
   async function signUp(event: React.FormEvent) {
@@ -116,7 +123,7 @@ export default function LoginPage() {
     try {
       await apiSend("/profiles/access-requests", "POST", requestPayload);
       window.localStorage.removeItem(pendingRequestKey);
-      router.push("/pending-approval");
+      navigateAfterAuth("/pending-approval");
     } catch (requestError) {
       setMessage(requestError instanceof Error ? requestError.message : "Account created, but the approval request could not be submitted.");
       setIsSubmitting(false);
@@ -274,4 +281,10 @@ function initialLoginMessage() {
   const reason = new URLSearchParams(window.location.search).get("reason");
   if (reason === "session_expired") return "Your session expired. Please sign in again to continue.";
   return null;
+}
+
+function navigateAfterAuth(path: string) {
+  if (typeof window !== "undefined") {
+    window.location.assign(path);
+  }
 }

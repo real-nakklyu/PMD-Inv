@@ -82,6 +82,36 @@ class AvailabilitySummaryItem(BaseModel):
     notes: str | None = None
 
 
+class AvailabilityTransferRecommendation(BaseModel):
+    equipment_type: EquipmentType
+    from_region: FloridaRegion
+    to_region: FloridaRegion
+    quantity: int
+    source_equipment: list[dict[str, Any]] = Field(default_factory=list)
+    source_available: int
+    source_minimum: int
+    destination_available: int
+    destination_minimum: int
+    destination_shortage: int
+    reason: str
+
+
+class AvailabilityProcurementNeed(BaseModel):
+    region: FloridaRegion
+    equipment_type: EquipmentType
+    quantity: int
+    available: int
+    minimum_available: int
+    reason: str
+
+
+class AvailabilityRecommendations(BaseModel):
+    transfers: list[AvailabilityTransferRecommendation]
+    procurement_needs: list[AvailabilityProcurementNeed]
+    shortage_count: int
+    healthy_count: int
+
+
 class SavedViewCreate(BaseModel):
     page: SavedViewPage
     name: str = Field(min_length=2, max_length=120)

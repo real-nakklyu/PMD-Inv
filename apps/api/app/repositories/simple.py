@@ -35,3 +35,19 @@ class SavedViewRepository(SupabaseRepository):
 
 class DeliverySetupChecklistRepository(SupabaseRepository):
     table_name = "delivery_setup_checklists"
+
+
+class EquipmentMovementRepository(SupabaseRepository):
+    table_name = "equipment_movements"
+
+
+class PreventiveMaintenanceRepository(SupabaseRepository):
+    table_name = "preventive_maintenance_tasks"
+
+
+class EquipmentCostEventRepository(SupabaseRepository):
+    table_name = "equipment_cost_events"
+
+
+class HandoffNoteRepository(SupabaseRepository):
+    table_name = "handoff_notes"

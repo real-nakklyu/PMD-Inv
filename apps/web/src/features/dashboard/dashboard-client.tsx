@@ -1,17 +1,18 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import type { ReactNode } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
-import { AlertTriangle, CheckCircle2 } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Clock3, Gauge, RotateCcw, Wrench } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 import { CardGridSkeleton, ListSkeleton, Skeleton } from "@/components/ui/skeleton";
 import { apiGet } from "@/lib/api";
-import { humanize } from "@/lib/utils";
-import { equipmentTypes, floridaRegions, type DashboardSummary, type Equipment, type NotificationsResponse } from "@/types/domain";
+import { humanize, pluralize } from "@/lib/utils";
+import { equipmentTypes, floridaRegions, type DashboardSummary, type DashboardUtilization, type Equipment, type NotificationsResponse } from "@/types/domain";
 
 const RegionBarChart = dynamic(() => import("@/features/dashboard/dashboard-charts").then((module) => module.RegionBarChart), {
   ssr: false,
@@ -42,6 +43,7 @@ const emptyDashboard: DashboardSummary = {
 
 export function DashboardClient() {
   const [summary, setSummary] = useState<DashboardSummary>(emptyDashboard);
+  const [utilization, setUtilization] = useState<DashboardUtilization | null>(null);
   const [equipment, setEquipment] = useState<Equipment[]>([]);
   const [attention, setAttention] = useState<NotificationsResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -54,6 +56,7 @@ export function DashboardClient() {
     }).catch((reason) => {
       setError(reason instanceof Error ? reason.message : "Unable to load dashboard data.");
     }).finally(() => setIsLoading(false));
+    apiGet<DashboardUtilization>("/dashboard/utilization").then(setUtilization).catch(() => undefined);
     apiGet<Equipment[]>("/equipment?limit=1000").then(setEquipment).catch(() => undefined);
     apiGet<NotificationsResponse>("/notifications").then(setAttention).catch(() => undefined);
   }, []);
@@ -89,6 +92,7 @@ export function DashboardClient() {
           </CardContent>
         </Card>
       </div>
+      <UtilizationPanel utilization={utilization} isLoading={isLoading} />
       <div className="mt-5 grid gap-5 xl:grid-cols-[1.35fr_0.65fr]">
         <Card>
           <CardHeader>
@@ -173,6 +177,82 @@ function StatCard({ label, value }: { label: string; value: number }) {
         <div className="mt-3 text-3xl font-semibold tabular-nums">{value}</div>
       </CardContent>
     </Card>
+  );
+}
+
+function UtilizationPanel({ utilization, isLoading }: { utilization: DashboardUtilization | null; isLoading: boolean }) {
+  const regionRows = utilization?.by_region_type.slice().sort((a, b) => b.utilization_rate - a.utilization_rate).slice(0, 8) ?? [];
+  return (
+    <Card className="mt-5">
+      <CardHeader>
+        <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <CardTitle className="flex items-center gap-2"><Gauge className="h-4 w-4" /> Fleet Utilization</CardTitle>
+            <p className="mt-1 text-sm text-muted-foreground">Assigned use, idle stock, repair drag, and region/type utilization signals.</p>
+          </div>
+          {utilization ? <Badge>{pluralize(utilization.active_fleet, "active unit")}</Badge> : null}
+        </div>
+      </CardHeader>
+      <CardContent>
+        {isLoading || !utilization ? <ListSkeleton rows={4} /> : (
+          <div className="grid gap-5 xl:grid-cols-[0.75fr_1.25fr]">
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
+              <UtilizationMetric label="Assigned utilization" value={`${utilization.utilization_rate}%`} icon={<Gauge className="h-4 w-4 text-primary" />} />
+              <UtilizationMetric label="Repair drag" value={`${utilization.repair_drag_rate}%`} icon={<Wrench className="h-4 w-4 text-amber-600 dark:text-amber-300" />} />
+              <UtilizationMetric label="Return drag" value={`${utilization.return_drag_rate}%`} icon={<RotateCcw className="h-4 w-4 text-sky-600 dark:text-sky-300" />} />
+              <UtilizationMetric label="Idle 30+ days" value={String(utilization.idle_over_30_days)} icon={<Clock3 className="h-4 w-4 text-muted-foreground" />} />
+            </div>
+            <div className="grid gap-4 lg:grid-cols-2">
+              <div className="rounded-md border border-border">
+                <div className="border-b border-border px-3 py-2 text-sm font-semibold">Longest Idle Available Units</div>
+                <div className="divide-y divide-border">
+                  {utilization.top_idle.length ? utilization.top_idle.map((item) => (
+                    <Link key={item.id} href={`/equipment/${item.id}`} className="flex items-center justify-between gap-3 px-3 py-2 text-sm transition hover:bg-primary/5">
+                      <span className="min-w-0">
+                        <span className="block truncate font-medium">{item.serial_number} - {item.make} {item.model}</span>
+                        <span className="block text-xs text-muted-foreground">{item.region} / {humanize(item.equipment_type)}</span>
+                      </span>
+                      <Badge className={item.idle_days >= 30 ? "border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-100" : undefined}>
+                        {pluralize(item.idle_days, "day")}
+                      </Badge>
+                    </Link>
+                  )) : <div className="p-3 text-sm text-muted-foreground">No available units loaded.</div>}
+                </div>
+              </div>
+              <div className="rounded-md border border-border">
+                <div className="border-b border-border px-3 py-2 text-sm font-semibold">Top Region Utilization</div>
+                <div className="divide-y divide-border">
+                  {regionRows.length ? regionRows.map((item) => (
+                    <div key={`${item.region}-${item.equipment_type}`} className="px-3 py-2 text-sm">
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="font-medium">{item.region} {humanize(item.equipment_type)}</span>
+                        <span className="font-semibold text-primary">{item.utilization_rate}%</span>
+                      </div>
+                      <div className="mt-1 h-2 overflow-hidden rounded bg-muted">
+                        <div className="h-full rounded bg-primary" style={{ width: `${Math.min(100, item.utilization_rate)}%` }} />
+                      </div>
+                      <div className="mt-1 text-xs text-muted-foreground">{item.assigned} assigned / {item.total} total</div>
+                    </div>
+                  )) : <div className="p-3 text-sm text-muted-foreground">No utilization data loaded.</div>}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function UtilizationMetric({ label, value, icon }: { label: string; value: string; icon: ReactNode }) {
+  return (
+    <div className="rounded-md border border-border bg-muted/25 p-3">
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-sm text-muted-foreground">{label}</span>
+        {icon}
+      </div>
+      <div className="mt-2 text-2xl font-semibold tabular-nums">{value}</div>
+    </div>
   );
 }
 

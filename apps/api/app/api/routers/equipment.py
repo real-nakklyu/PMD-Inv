@@ -107,6 +107,51 @@ def get_equipment_detail(
         .data
         or []
     )
+    try:
+        movements = (
+            client.table("equipment_movements")
+            .select("*, patients(full_name,date_of_birth,region)")
+            .eq("equipment_id", equipment_id)
+            .order("moved_at", desc=True)
+            .limit(50)
+            .execute()
+            .data
+            or []
+        )
+    except HTTPException as exc:
+        if "equipment_movements" not in str(exc.detail).lower():
+            raise
+        movements = []
+    try:
+        maintenance = (
+            client.table("preventive_maintenance_tasks")
+            .select("*, service_tickets(ticket_number,status,priority)")
+            .eq("equipment_id", equipment_id)
+            .order("due_at", desc=False)
+            .limit(50)
+            .execute()
+            .data
+            or []
+        )
+    except HTTPException as exc:
+        if "preventive_maintenance_tasks" not in str(exc.detail).lower():
+            raise
+        maintenance = []
+    try:
+        cost_events = (
+            client.table("equipment_cost_events")
+            .select("*, service_tickets(ticket_number,status,priority)")
+            .eq("equipment_id", equipment_id)
+            .order("occurred_at", desc=True)
+            .limit(100)
+            .execute()
+            .data
+            or []
+        )
+    except HTTPException as exc:
+        if "equipment_cost_events" not in str(exc.detail).lower():
+            raise
+        cost_events = []
     repair_count = len(
         [
             ticket
@@ -120,6 +165,9 @@ def get_equipment_detail(
         "returns": returns,
         "service_tickets": tickets,
         "activity": activity,
+        "movements": movements,
+        "maintenance": maintenance,
+        "cost_events": cost_events,
         "repair_count": repair_count,
     }
 
@@ -164,11 +212,14 @@ def delete_equipment(equipment_id: str, user: Annotated[AuthUser, Depends(requir
     has_workflow_history = any(dependency_counts.values())
 
     if has_workflow_history:
+        now = datetime.now(timezone.utc).isoformat()
+        ended_assignment_count = _end_active_assignments_for_equipment(client, equipment_id, ended_at=now)
         archived = repo.update(
             equipment_id,
             {
                 "status": "retired",
-                "archived_at": datetime.now(timezone.utc).isoformat(),
+                "assigned_at": None,
+                "archived_at": now,
             },
         )
         log_change_activity(
@@ -178,21 +229,24 @@ def delete_equipment(equipment_id: str, user: Annotated[AuthUser, Depends(requir
             equipment_id=equipment_id,
             before=before,
             after=archived,
-            fields=["status", "archived_at"],
-            message=f"Equipment {archived['serial_number']} retired and archived.",
+            fields=["status", "assigned_at", "archived_at"],
+            message=f"Equipment {archived['serial_number']} retired and archived. {_assignment_count_label(ended_assignment_count)} ended.",
         )
-        return {"action": "archived", "message": "Equipment has workflow history, so it was retired and archived instead of hard-deleted."}
+        return {"action": "archived", "message": "Equipment has workflow history, so it was retired and archived instead of hard-deleted. Active assignments were ended."}
 
     try:
         repo.delete(equipment_id)
     except HTTPException as exc:
         if "foreign key" not in str(exc.detail).lower():
             raise
+        now = datetime.now(timezone.utc).isoformat()
+        ended_assignment_count = _end_active_assignments_for_equipment(client, equipment_id, ended_at=now)
         archived = repo.update(
             equipment_id,
             {
                 "status": "retired",
-                "archived_at": datetime.now(timezone.utc).isoformat(),
+                "assigned_at": None,
+                "archived_at": now,
             },
         )
         log_change_activity(
@@ -202,10 +256,10 @@ def delete_equipment(equipment_id: str, user: Annotated[AuthUser, Depends(requir
             equipment_id=equipment_id,
             before=before,
             after=archived,
-            fields=["status", "archived_at"],
-            message=f"Equipment {archived['serial_number']} retired and archived.",
+            fields=["status", "assigned_at", "archived_at"],
+            message=f"Equipment {archived['serial_number']} retired and archived. {_assignment_count_label(ended_assignment_count)} ended.",
         )
-        return {"action": "archived", "message": "Equipment was retired and archived because related records still reference it."}
+        return {"action": "archived", "message": "Equipment was retired and archived because related records still reference it. Active assignments were ended."}
 
     return {"action": "deleted", "message": "Equipment permanently deleted."}
 
@@ -216,6 +270,9 @@ def _equipment_dependency_counts(client: Any, equipment_id: str) -> dict[str, in
         "returns",
         "service_tickets",
         "delivery_setup_checklists",
+        "equipment_movements",
+        "preventive_maintenance_tasks",
+        "equipment_cost_events",
     ]
     counts: dict[str, int] = {}
     for table_name in related_tables:
@@ -233,3 +290,22 @@ def _equipment_dependency_counts(client: Any, equipment_id: str) -> dict[str, in
             continue
         counts[table_name] = response.count or 0
     return counts
+
+
+def _end_active_assignments_for_equipment(client: Any, equipment_id: str, *, ended_at: str) -> int:
+    active_assignments = (
+        client.table("assignments")
+        .select("id")
+        .eq("equipment_id", equipment_id)
+        .in_("status", ["active", "return_in_progress"])
+        .execute()
+        .data
+        or []
+    )
+    for assignment in active_assignments:
+        client.table("assignments").update({"status": "ended", "ended_at": ended_at}).eq("id", assignment["id"]).execute()
+    return len(active_assignments)
+
+
+def _assignment_count_label(count: int) -> str:
+    return f"{count} active {'assignment' if count == 1 else 'assignments'}"

@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { Download, ExternalLink, Printer, Trash2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { ArrowRight, Download, ExternalLink, History, Loader2, MapPin, Plus, Printer, Route, Trash2, X } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { EquipmentQrLabel } from "@/components/operations/qr-label";
@@ -10,13 +10,15 @@ import { AttachmentUploader } from "@/components/storage/attachment-uploader";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { Input, Select, Textarea } from "@/components/ui/input";
 import { ListSkeleton, Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/toast";
 import { apiGet, apiSend } from "@/lib/api";
 import { downloadCsv } from "@/lib/export";
 import { ticketDisplayNumber } from "@/lib/tickets";
-import { humanize } from "@/lib/utils";
-import type { ActivityLog, Assignment, Equipment, EquipmentDetailData, Patient, PatientDetailData, ReturnRecord, ServiceTicket } from "@/types/domain";
+import { currency, humanize, pluralize } from "@/lib/utils";
+import { floridaRegions } from "@/types/domain";
+import type { ActivityLog, Assignment, Equipment, EquipmentCostEvent, EquipmentDetailData, EquipmentLocationType, EquipmentMovement, EquipmentMovementType, FloridaRegion, Patient, PatientDetailData, PreventiveMaintenanceTask, ReturnRecord, ServiceTicket } from "@/types/domain";
 import { ReturnInspectionChecklist, ReturnStatusControl } from "@/features/workflows/workflow-forms";
 
 export function AssignedList({ refreshKey = 0 }: { refreshKey?: number }) {
@@ -25,7 +27,7 @@ export function AssignedList({ refreshKey = 0 }: { refreshKey?: number }) {
   const [error, setError] = useState<string | null>(null);
   const { toast } = useToast();
   useEffect(() => {
-    apiGet<Assignment[]>("/assignments").then((items) => {
+    apiGet<Assignment[]>("/assignments?status=active").then((items) => {
       setAssignments(items);
       setError(null);
     }).catch((reason) => {
@@ -46,7 +48,7 @@ export function AssignedList({ refreshKey = 0 }: { refreshKey?: number }) {
         notes: item.notes ?? ""
       }))
     );
-    toast({ kind: "success", title: "Assignments CSV downloaded", description: `${assignments.length} records exported.` });
+    toast({ kind: "success", title: "Assignments CSV downloaded", description: `${pluralize(assignments.length, "record")} exported.` });
   }
   return (
     <Card>
@@ -114,7 +116,7 @@ export function ReturnsList({ refreshKey = 0, onChanged }: { refreshKey?: number
         notes: item.notes ?? ""
       }))
     );
-    toast({ kind: "success", title: "Returns CSV downloaded", description: `${returns.length} records exported.` });
+    toast({ kind: "success", title: "Returns CSV downloaded", description: `${pluralize(returns.length, "record")} exported.` });
   }
   async function deleteReturn(item: ReturnRecord) {
     try {
@@ -223,7 +225,7 @@ export function TicketsList({ refreshKey = 0, onChanged }: { refreshKey?: number
         closed_at: item.closed_at ?? ""
       }))
     );
-    toast({ kind: "success", title: "Service tickets CSV downloaded", description: `${tickets.length} records exported.` });
+    toast({ kind: "success", title: "Service tickets CSV downloaded", description: `${pluralize(tickets.length, "record")} exported.` });
   }
   async function deleteTicket(ticket: ServiceTicket) {
     try {
@@ -351,11 +353,12 @@ export function PatientsList({ refreshKey = 0 }: { refreshKey?: number }) {
   );
 }
 
-export function EquipmentDetail({ id }: { id: string }) {
+export function EquipmentDetail({ id, movementPrefill = "" }: { id: string; movementPrefill?: string }) {
   const [equipment, setEquipment] = useState<Equipment | null>(null);
   const [detail, setDetail] = useState<EquipmentDetailData | null>(null);
   const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
+  const [isTimelineOpen, setIsTimelineOpen] = useState(false);
+  const refreshDetail = useCallback(() => {
     apiGet<Equipment>(`/equipment/${id}`).then((item) => {
       setEquipment(item);
       setError(null);
@@ -370,91 +373,499 @@ export function EquipmentDetail({ id }: { id: string }) {
       setError(reason instanceof Error ? reason.message : "Unable to load equipment detail.");
     });
   }, [id]);
+  useEffect(() => {
+    refreshDetail();
+  }, [refreshDetail]);
   if (!equipment) {
     return error ? <LoadError message={error} /> : <DetailSkeleton />;
   }
   const currentAssignment = detail?.assignments.find((item) => item.status === "active" || item.status === "return_in_progress");
+  const activity = detail?.activity ?? [];
   return (
-    <div className="grid gap-5 xl:grid-cols-[1fr_360px]">
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between gap-3">
-            <CardTitle>{equipment.make} {equipment.model}</CardTitle>
-            <Button type="button" className="print:hidden bg-secondary text-secondary-foreground hover:bg-secondary/80" onClick={() => window.print()}>
-              <Printer className="h-4 w-4" />
-              Print
-            </Button>
-          </div>
-        </CardHeader>
-        <CardContent className="grid gap-4 md:grid-cols-2">
-          <Detail label="Serial" value={equipment.serial_number} />
-          <Detail label="Type" value={humanize(equipment.equipment_type)} />
-          <Detail label="Status" value={<Badge>{equipment.status}</Badge>} />
-          <Detail label="Region" value={equipment.region} />
-          <Detail label="Added" value={new Date(equipment.added_at).toLocaleString()} />
-          <Detail label="Assigned" value={equipment.assigned_at ? new Date(equipment.assigned_at).toLocaleString() : "Not assigned"} />
-          <Detail label="Completed repairs" value={detail?.repair_count ?? "Connect API for count"} />
-          <div className="md:col-span-2">
-            <Detail label="Notes" value={equipment.notes ?? "No notes recorded"} />
-          </div>
-        </CardContent>
-      </Card>
-      <Card>
-        <CardHeader>
-          <CardTitle>Current Patient</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {currentAssignment?.patients ? (
-            <div className="space-y-3 text-sm">
-              <Link className="text-base font-semibold text-primary hover:underline" href={`/patients/${currentAssignment.patient_id}`}>
-                {currentAssignment.patients.full_name}
-              </Link>
-              <div className="text-muted-foreground">DOB {new Date(currentAssignment.patients.date_of_birth).toLocaleDateString()}</div>
-              <div className="text-muted-foreground">Region {currentAssignment.patients.region}</div>
-              <div className="text-muted-foreground">Assigned {new Date(currentAssignment.assigned_at).toLocaleString()}</div>
+    <>
+      <div className="grid gap-5 xl:grid-cols-[1fr_360px]">
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between gap-3">
+              <CardTitle>{equipment.make} {equipment.model}</CardTitle>
+              <Button type="button" className="print:hidden bg-secondary text-secondary-foreground hover:bg-secondary/80" onClick={() => window.print()}>
+                <Printer className="h-4 w-4" />
+                Print
+              </Button>
             </div>
-          ) : <p className="text-sm text-muted-foreground">This equipment is not currently assigned.</p>}
-        </CardContent>
-      </Card>
-      <Card>
-        <CardHeader>
-          <CardTitle>Timeline</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3 text-sm">
-          {(detail?.activity ?? []).length ? detail?.activity.map((item) => (
-            <div key={item.id} className="border-l-2 border-primary pl-3">
-              <div><ActivityMessage item={item} assignments={detail?.assignments ?? []} /></div>
-              <AuditChanges item={item} />
-              <div className="text-xs text-muted-foreground">{new Date(item.created_at).toLocaleString()}</div>
+          </CardHeader>
+          <CardContent className="grid gap-4 md:grid-cols-2">
+            <Detail label="Serial" value={equipment.serial_number} />
+            <Detail label="Type" value={humanize(equipment.equipment_type)} />
+            <Detail label="Status" value={<Badge>{equipment.status}</Badge>} />
+            <Detail label="Region" value={equipment.region} />
+            <Detail label="Added" value={new Date(equipment.added_at).toLocaleString()} />
+            <Detail label="Assigned" value={equipment.assigned_at ? new Date(equipment.assigned_at).toLocaleString() : "Not assigned"} />
+            <Detail label="Completed repairs" value={detail?.repair_count ?? "Connect API for count"} />
+            <div className="md:col-span-2">
+              <Detail label="Notes" value={equipment.notes ?? "No notes recorded"} />
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle>Current Patient</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {currentAssignment?.patients ? (
+              <div className="space-y-3 text-sm">
+                <Link className="text-base font-semibold text-primary hover:underline" href={`/patients/${currentAssignment.patient_id}`}>
+                  {currentAssignment.patients.full_name}
+                </Link>
+                <div className="text-muted-foreground">DOB {new Date(currentAssignment.patients.date_of_birth).toLocaleDateString()}</div>
+                <div className="text-muted-foreground">Region {currentAssignment.patients.region}</div>
+                <div className="text-muted-foreground">Assigned {new Date(currentAssignment.assigned_at).toLocaleString()}</div>
+              </div>
+            ) : <p className="text-sm text-muted-foreground">This equipment is not currently assigned.</p>}
+          </CardContent>
+        </Card>
+        <MovementLedger key={`${equipment.id}:${movementPrefill}`} equipment={equipment} movements={detail?.movements ?? []} movementPrefill={movementPrefill} onChanged={refreshDetail} />
+        <MaintenanceHistory tasks={detail?.maintenance ?? []} />
+        <CostHistory events={detail?.cost_events ?? []} />
+        <HistoryCard title="Assignment History" items={detail?.assignments ?? []} empty="No assignment history loaded." />
+        <HistoryCard title="Return History" items={detail?.returns ?? []} empty="No return history loaded." />
+        <HistoryCard title="Service History" items={detail?.service_tickets ?? []} empty="No service ticket history loaded." />
+        <Card>
+          <CardHeader>
+            <CardTitle>Damage Photos</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <AttachmentUploader scope="equipment-damage" ownerId={equipment.id} label="Damage photos / condition documents" accept="image/*,.pdf" />
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle>Label</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <EquipmentQrLabel equipmentId={equipment.id} serialNumber={equipment.serial_number} make={equipment.make} model={equipment.model} />
+          </CardContent>
+        </Card>
+      </div>
+      <Button
+        type="button"
+        className="fixed bottom-5 right-5 z-40 h-12 rounded-md border border-primary/25 bg-primary px-4 text-primary-foreground shadow-xl shadow-primary/20 hover:bg-primary/90 print:hidden"
+        onClick={() => setIsTimelineOpen(true)}
+      >
+        <History className="h-4 w-4" />
+        Timeline
+        <span className="rounded bg-primary-foreground/20 px-1.5 py-0.5 text-xs">{activity.length}</span>
+      </Button>
+      <EquipmentTimelineDrawer
+        open={isTimelineOpen}
+        equipment={equipment}
+        activity={activity}
+        assignments={detail?.assignments ?? []}
+        onClose={() => setIsTimelineOpen(false)}
+      />
+    </>
+  );
+}
+
+function EquipmentTimelineDrawer({
+  open,
+  equipment,
+  activity,
+  assignments,
+  onClose
+}: {
+  open: boolean;
+  equipment: Equipment;
+  activity: ActivityLog[];
+  assignments: EquipmentDetailData["assignments"];
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    if (!open) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") onClose();
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [open, onClose]);
+
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 print:hidden" role="dialog" aria-modal="true" aria-labelledby="equipment-timeline-title">
+      <button
+        type="button"
+        className="absolute inset-0 cursor-default bg-slate-950/45 backdrop-blur-sm"
+        aria-label="Close timeline"
+        onClick={onClose}
+      />
+      <aside className="absolute right-0 top-0 flex h-full w-full max-w-[560px] flex-col border-l border-border bg-card shadow-2xl shadow-slate-950/30">
+        <div className="flex items-start justify-between gap-3 border-b border-border px-5 py-4">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 text-primary">
+              <History className="h-4 w-4" />
+              <span className="text-xs font-semibold uppercase tracking-wide">Equipment timeline</span>
+            </div>
+            <h2 id="equipment-timeline-title" className="mt-2 truncate text-lg font-semibold">
+              {equipment.serial_number} - {equipment.make} {equipment.model}
+            </h2>
+            <p className="mt-1 text-sm text-muted-foreground">Audit history, assignments, workflow updates, and operational events.</p>
+          </div>
+          <button
+            type="button"
+            className="grid h-9 w-9 shrink-0 place-items-center rounded-md border border-border bg-muted text-muted-foreground transition hover:bg-background hover:text-foreground"
+            onClick={onClose}
+            aria-label="Close timeline"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+          <div className="space-y-4 text-sm">
+            {activity.length ? activity.map((item) => (
+              <div key={item.id} className="relative border-l-2 border-primary/35 pb-1 pl-4">
+                <span className="absolute -left-[5px] top-1 h-2.5 w-2.5 rounded-full border-2 border-card bg-primary" />
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge>{item.event_type}</Badge>
+                  <span className="text-xs text-muted-foreground">{new Date(item.created_at).toLocaleString()}</span>
+                </div>
+                <div className="mt-2 font-medium"><ActivityMessage item={item} assignments={assignments} /></div>
+                <AuditChanges item={item} />
+              </div>
+            )) : (
+              <>
+                <div className="relative border-l-2 border-primary/35 pl-4">
+                  <span className="absolute -left-[5px] top-1 h-2.5 w-2.5 rounded-full border-2 border-card bg-primary" />
+                  <div className="font-medium">Equipment added to {equipment.region}</div>
+                  <div className="text-xs text-muted-foreground">{new Date(equipment.added_at).toLocaleString()}</div>
+                </div>
+                {equipment.assigned_at ? (
+                  <div className="relative border-l-2 border-primary/35 pl-4">
+                    <span className="absolute -left-[5px] top-1 h-2.5 w-2.5 rounded-full border-2 border-card bg-primary" />
+                    <div className="font-medium">Assigned</div>
+                    <div className="text-xs text-muted-foreground">{new Date(equipment.assigned_at).toLocaleString()}</div>
+                  </div>
+                ) : null}
+              </>
+            )}
+          </div>
+        </div>
+      </aside>
+    </div>
+  );
+}
+
+const movementTypes: EquipmentMovementType[] = [
+  "received_into_inventory",
+  "warehouse_to_driver",
+  "driver_to_patient",
+  "patient_to_return",
+  "return_to_warehouse",
+  "warehouse_to_repair",
+  "repair_to_warehouse",
+  "region_transfer",
+  "manual_adjustment",
+  "retired"
+];
+
+const locationTypes: EquipmentLocationType[] = [
+  "warehouse",
+  "driver",
+  "patient",
+  "repair",
+  "return_in_transit",
+  "retired",
+  "unknown"
+];
+
+type MovementFormState = {
+  movement_type: EquipmentMovementType;
+  from_location_type: EquipmentLocationType;
+  from_location_label: string;
+  from_region: "" | FloridaRegion;
+  to_location_type: EquipmentLocationType;
+  to_location_label: string;
+  to_region: "" | FloridaRegion;
+  moved_at: string;
+  notes: string;
+};
+
+function MovementLedger({ equipment, movements, movementPrefill, onChanged }: { equipment: Equipment; movements: EquipmentMovement[]; movementPrefill?: string; onChanged: () => void }) {
+  const { toast } = useToast();
+  const [isCreating, setIsCreating] = useState(false);
+  const [form, setForm] = useState<MovementFormState>(() => initialMovementForm(equipment, movementPrefill));
+
+  async function createMovement() {
+    setIsCreating(true);
+    try {
+      await apiSend<EquipmentMovement>("/equipment-movements", "POST", {
+        equipment_id: equipment.id,
+        movement_type: form.movement_type,
+        from_location_type: form.from_location_type,
+        from_location_label: nullableText(form.from_location_label),
+        from_region: form.from_region || null,
+        to_location_type: form.to_location_type,
+        to_location_label: nullableText(form.to_location_label),
+        to_region: form.to_region || null,
+        moved_at: form.moved_at ? new Date(form.moved_at).toISOString() : null,
+        notes: nullableText(form.notes)
+      });
+      toast({ kind: "success", title: "Movement recorded", description: "The equipment chain of custody was updated." });
+      setForm(initialMovementForm(equipment, movementPrefill));
+      onChanged();
+    } catch (reason) {
+      const message = reason instanceof Error ? reason.message : "Unable to record movement.";
+      toast({
+        kind: "error",
+        title: "Could not record movement",
+        description: message.includes("equipment_movements") ? "Run the 010 equipment movement ledger migration in Supabase, then try again." : message
+      });
+    } finally {
+      setIsCreating(false);
+    }
+  }
+
+  return (
+    <Card className="xl:col-span-2">
+      <CardHeader>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <CardTitle>Movement Ledger</CardTitle>
+            <p className="mt-1 text-sm text-muted-foreground">Chain of custody for warehouse, driver, patient, return, repair, and region transfers.</p>
+          </div>
+          <Badge className="w-fit border-primary/25 bg-primary/10 text-primary">{pluralize(movements.length, "event")}</Badge>
+        </div>
+      </CardHeader>
+      <CardContent className="grid gap-5 lg:grid-cols-[1fr_380px]">
+        <div className="space-y-3">
+          {movements.length ? movements.map((movement) => (
+            <div key={movement.id} className="rounded-md border border-border bg-card p-3 shadow-sm">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge>{humanize(movement.movement_type)}</Badge>
+                    <span className="text-xs text-muted-foreground">{new Date(movement.moved_at).toLocaleString()}</span>
+                  </div>
+                  <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
+                    <LocationPill type={movement.from_location_type} label={movement.from_location_label} region={movement.from_region} />
+                    <ArrowRight className="h-4 w-4 text-primary" />
+                    <LocationPill type={movement.to_location_type} label={movement.to_location_label} region={movement.to_region} />
+                  </div>
+                  {movement.patient_id && movement.patients?.full_name ? (
+                    <Link className="mt-3 inline-flex text-sm font-medium text-primary hover:underline" href={`/patients/${movement.patient_id}`}>
+                      {movement.patients.full_name}
+                    </Link>
+                  ) : null}
+                  {movement.notes ? <p className="mt-2 text-sm text-muted-foreground">{movement.notes}</p> : null}
+                </div>
+                <Route className="hidden h-5 w-5 text-primary sm:block" />
+              </div>
             </div>
           )) : (
-            <>
-              <div className="border-l-2 border-primary pl-3">Equipment added to {equipment.region}</div>
-              {equipment.assigned_at ? <div className="border-l-2 border-blue-500 pl-3">Assigned on {new Date(equipment.assigned_at).toLocaleDateString()}</div> : null}
-            </>
+            <div className="rounded-md border border-dashed border-border bg-muted/20 p-6 text-sm text-muted-foreground">
+              No movements recorded yet. New delivery completions and manual entries will appear here.
+            </div>
           )}
-        </CardContent>
-      </Card>
-      <HistoryCard title="Assignment History" items={detail?.assignments ?? []} empty="No assignment history loaded." />
-      <HistoryCard title="Return History" items={detail?.returns ?? []} empty="No return history loaded." />
-      <HistoryCard title="Service History" items={detail?.service_tickets ?? []} empty="No service ticket history loaded." />
-      <Card>
-        <CardHeader>
-          <CardTitle>Damage Photos</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <AttachmentUploader scope="equipment-damage" ownerId={equipment.id} label="Damage photos / condition documents" accept="image/*,.pdf" />
-        </CardContent>
-      </Card>
-      <Card>
-        <CardHeader>
-          <CardTitle>Label</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <EquipmentQrLabel equipmentId={equipment.id} serialNumber={equipment.serial_number} make={equipment.make} model={equipment.model} />
-        </CardContent>
-      </Card>
-    </div>
+        </div>
+
+        <div className="rounded-md border border-border bg-muted/20 p-4">
+          <div className="mb-4">
+            <div className="font-semibold">Record Movement</div>
+            <p className="text-sm text-muted-foreground">Use this for manual custody changes that happen outside a scheduled delivery.</p>
+          </div>
+          <div className="grid gap-3">
+            <label className="space-y-1.5 text-sm font-medium">
+              Movement type
+              <Select value={form.movement_type} onChange={(event) => setForm((current) => ({ ...current, movement_type: event.target.value as EquipmentMovementType }))}>
+                {movementTypes.map((type) => <option key={type} value={type}>{humanize(type)}</option>)}
+              </Select>
+            </label>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
+              <label className="space-y-1.5 text-sm font-medium">
+                From
+                <Select value={form.from_location_type} onChange={(event) => setForm((current) => ({ ...current, from_location_type: event.target.value as EquipmentLocationType }))}>
+                  {locationTypes.map((type) => <option key={type} value={type}>{humanize(type)}</option>)}
+                </Select>
+              </label>
+              <label className="space-y-1.5 text-sm font-medium">
+                To
+                <Select value={form.to_location_type} onChange={(event) => setForm((current) => ({ ...current, to_location_type: event.target.value as EquipmentLocationType }))}>
+                  {locationTypes.map((type) => <option key={type} value={type}>{humanize(type)}</option>)}
+                </Select>
+              </label>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
+              <Input value={form.from_location_label} placeholder="From label, driver, shelf..." onChange={(event) => setForm((current) => ({ ...current, from_location_label: event.target.value }))} />
+              <Input value={form.to_location_label} placeholder="To label, driver, patient home..." onChange={(event) => setForm((current) => ({ ...current, to_location_label: event.target.value }))} />
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
+              <label className="space-y-1.5 text-sm font-medium">
+                From region
+                <Select value={form.from_region} onChange={(event) => setForm((current) => ({ ...current, from_region: event.target.value as "" | FloridaRegion }))}>
+                  <option value="">Not set</option>
+                  {floridaRegions.map((region) => <option key={region} value={region}>{region}</option>)}
+                </Select>
+              </label>
+              <label className="space-y-1.5 text-sm font-medium">
+                To region
+                <Select value={form.to_region} onChange={(event) => setForm((current) => ({ ...current, to_region: event.target.value as "" | FloridaRegion }))}>
+                  <option value="">Not set</option>
+                  {floridaRegions.map((region) => <option key={region} value={region}>{region}</option>)}
+                </Select>
+              </label>
+            </div>
+            <label className="space-y-1.5 text-sm font-medium">
+              Moved at
+              <Input type="datetime-local" value={form.moved_at} onChange={(event) => setForm((current) => ({ ...current, moved_at: event.target.value }))} />
+            </label>
+            <Textarea className="min-h-24" value={form.notes} placeholder="Notes, handoff context, route detail..." onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))} />
+            <Button type="button" onClick={createMovement} disabled={isCreating}>
+              {isCreating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+              Record movement
+            </Button>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function initialMovementForm(equipment: Equipment, prefillQuery = ""): MovementFormState {
+  const sourceType = currentLocationType(equipment);
+  const params = new URLSearchParams(prefillQuery);
+  const form: MovementFormState = {
+    movement_type: "manual_adjustment",
+    from_location_type: sourceType,
+    from_location_label: `${equipment.region} ${humanize(sourceType)}`,
+    from_region: equipment.region,
+    to_location_type: equipment.status === "assigned" ? "patient" : equipment.status === "in_repair" ? "repair" : "warehouse",
+    to_location_label: "",
+    to_region: equipment.region,
+    moved_at: toDatetimeLocal(new Date()),
+    notes: ""
+  };
+  const movementType = params.get("movement_type");
+  const fromLocationType = params.get("from_location_type");
+  const toLocationType = params.get("to_location_type");
+  const fromRegion = params.get("from_region");
+  const toRegion = params.get("to_region");
+  if (isMovementType(movementType)) form.movement_type = movementType;
+  if (isLocationType(fromLocationType)) form.from_location_type = fromLocationType;
+  if (isLocationType(toLocationType)) form.to_location_type = toLocationType;
+  if (isFloridaRegion(fromRegion)) form.from_region = fromRegion;
+  if (isFloridaRegion(toRegion)) form.to_region = toRegion;
+  form.from_location_label = params.get("from_location_label") ?? form.from_location_label;
+  form.to_location_label = params.get("to_location_label") ?? form.to_location_label;
+  form.notes = params.get("notes") ?? form.notes;
+  return form;
+}
+
+function currentLocationType(equipment: Equipment): EquipmentLocationType {
+  if (equipment.status === "assigned") return "patient";
+  if (equipment.status === "in_repair") return "repair";
+  if (equipment.status === "return_in_progress") return "return_in_transit";
+  if (equipment.status === "retired") return "retired";
+  return "warehouse";
+}
+
+function isMovementType(value: string | null): value is EquipmentMovementType {
+  return Boolean(value && movementTypes.includes(value as EquipmentMovementType));
+}
+
+function isLocationType(value: string | null): value is EquipmentLocationType {
+  return Boolean(value && locationTypes.includes(value as EquipmentLocationType));
+}
+
+function isFloridaRegion(value: string | null): value is FloridaRegion {
+  return Boolean(value && floridaRegions.includes(value as FloridaRegion));
+}
+
+function LocationPill({ type, label, region }: { type: EquipmentLocationType; label: string | null; region: FloridaRegion | null }) {
+  return (
+    <span className="inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-md border border-border bg-muted/35 px-2.5 py-1 text-xs font-medium text-foreground">
+      <MapPin className="h-3.5 w-3.5 shrink-0 text-primary" />
+      <span className="truncate">{label || humanize(type)}</span>
+      {region ? <span className="shrink-0 text-muted-foreground">({region})</span> : null}
+    </span>
+  );
+}
+
+function toDatetimeLocal(date: Date) {
+  const offsetDate = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+  return offsetDate.toISOString().slice(0, 16);
+}
+
+function nullableText(value: string) {
+  const trimmed = value.trim();
+  return trimmed.length ? trimmed : null;
+}
+
+function MaintenanceHistory({ tasks }: { tasks: PreventiveMaintenanceTask[] }) {
+  const [now] = useState(() => Date.now());
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Preventive Maintenance</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {tasks.length ? tasks.map((task) => {
+          const isOverdue = !["completed", "cancelled", "skipped"].includes(task.status) && new Date(task.due_at).getTime() < now;
+          return (
+            <div key={task.id} className="rounded-md border border-border p-3 text-sm">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge className={isOverdue ? "border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-100" : undefined}>
+                  {isOverdue ? "Overdue" : humanize(task.status)}
+                </Badge>
+                <Badge>{humanize(task.priority)}</Badge>
+                <span className="text-xs text-muted-foreground">Due {new Date(task.due_at).toLocaleDateString()}</span>
+              </div>
+              <div className="mt-2 font-medium">{humanize(task.task_type)}</div>
+              {task.notes ? <div className="mt-1 text-muted-foreground">{task.notes}</div> : null}
+              {task.completion_notes ? <div className="mt-2 rounded-md bg-muted/40 p-2">{task.completion_notes}</div> : null}
+            </div>
+          );
+        }) : <p className="text-sm text-muted-foreground">No preventive maintenance tasks loaded.</p>}
+      </CardContent>
+    </Card>
+  );
+}
+
+function CostHistory({ events }: { events: EquipmentCostEvent[] }) {
+  const total = events.reduce((sum, event) => sum + Number(event.amount), 0);
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between gap-3">
+          <CardTitle>Cost Ledger</CardTitle>
+          <Badge className="border-primary/25 bg-primary/10 text-primary">{currency(total)}</Badge>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {events.length ? events.slice(0, 8).map((event) => (
+          <div key={event.id} className="rounded-md border border-border p-3 text-sm">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge>{humanize(event.event_type)}</Badge>
+                {event.vendor ? <span className="font-medium">{event.vendor}</span> : null}
+              </div>
+              <span className={event.amount < 0 ? "font-semibold text-emerald-700 dark:text-emerald-300" : "font-semibold"}>{currency(Number(event.amount))}</span>
+            </div>
+            <div className="mt-1 text-xs text-muted-foreground">
+              {new Date(event.occurred_at).toLocaleDateString()}
+              {event.invoice_number ? ` / Invoice ${event.invoice_number}` : ""}
+            </div>
+            {event.notes ? <div className="mt-2 text-muted-foreground">{event.notes}</div> : null}
+          </div>
+        )) : <p className="text-sm text-muted-foreground">No cost events loaded.</p>}
+      </CardContent>
+    </Card>
   );
 }
 

@@ -130,6 +130,51 @@ export type DashboardSummary = {
   recent_activity: Array<{ id: string; event_type: string; message: string; created_at: string }>;
 };
 
+export type DashboardUtilization = {
+  active_fleet: number;
+  assigned: number;
+  available: number;
+  in_repair: number;
+  active_returns: number;
+  utilization_rate: number;
+  repair_drag_rate: number;
+  return_drag_rate: number;
+  open_ticket_equipment: number;
+  idle_over_30_days: number;
+  top_idle: Array<Pick<Equipment, "id" | "serial_number" | "make" | "model" | "region" | "equipment_type"> & { idle_days: number }>;
+  by_region_type: Array<{
+    region: FloridaRegion;
+    equipment_type: EquipmentType;
+    total: number;
+    assigned: number;
+    available: number;
+    in_repair: number;
+    return_in_progress: number;
+    utilization_rate: number;
+  }>;
+};
+
+export type DataQualityIssue = {
+  id: string;
+  kind: "missing_cost" | "assignment_mismatch" | "return_mismatch" | "repair_mismatch";
+  severity: NotificationSeverity;
+  title: string;
+  detail: string;
+  region: FloridaRegion | null;
+  href: string;
+};
+
+export type DataQualityResponse = {
+  issues: DataQualityIssue[];
+  counts: {
+    total: number;
+    critical: number;
+    warning: number;
+    info: number;
+  };
+  generated_at: string;
+};
+
 export type ActivityLog = {
   id: string;
   event_type: string;
@@ -144,12 +189,119 @@ export type ActivityLog = {
   created_at: string;
 };
 
+export type EquipmentMovementType =
+  | "received_into_inventory"
+  | "warehouse_to_driver"
+  | "driver_to_patient"
+  | "patient_to_return"
+  | "return_to_warehouse"
+  | "warehouse_to_repair"
+  | "repair_to_warehouse"
+  | "region_transfer"
+  | "manual_adjustment"
+  | "retired";
+
+export type EquipmentLocationType =
+  | "warehouse"
+  | "driver"
+  | "patient"
+  | "repair"
+  | "return_in_transit"
+  | "retired"
+  | "unknown";
+
+export type EquipmentMovement = {
+  id: string;
+  equipment_id: string;
+  movement_type: EquipmentMovementType;
+  from_location_type: EquipmentLocationType;
+  from_location_label: string | null;
+  from_region: FloridaRegion | null;
+  to_location_type: EquipmentLocationType;
+  to_location_label: string | null;
+  to_region: FloridaRegion | null;
+  patient_id: string | null;
+  assignment_id: string | null;
+  return_id: string | null;
+  appointment_id: string | null;
+  service_ticket_id: string | null;
+  moved_at: string;
+  notes: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+  patients?: Pick<Patient, "full_name" | "date_of_birth" | "region"> | null;
+  equipment?: Pick<Equipment, "serial_number" | "make" | "model" | "equipment_type" | "status" | "region"> | null;
+};
+
+export type MaintenanceTaskStatus = "due" | "scheduled" | "completed" | "skipped" | "cancelled";
+export type MaintenanceTaskType =
+  | "battery_check"
+  | "charger_check"
+  | "safety_inspection"
+  | "cleaning_sanitization"
+  | "tire_brake_check"
+  | "annual_pm"
+  | "other";
+
+export type PreventiveMaintenanceTask = {
+  id: string;
+  equipment_id: string;
+  service_ticket_id: string | null;
+  task_type: MaintenanceTaskType;
+  status: MaintenanceTaskStatus;
+  priority: "low" | "medium" | "high" | "urgent";
+  due_at: string;
+  scheduled_at: string | null;
+  completed_at: string | null;
+  odometer_hours: number | null;
+  battery_voltage: number | null;
+  notes: string | null;
+  completion_notes: string | null;
+  created_by: string | null;
+  completed_by: string | null;
+  created_at: string;
+  updated_at: string;
+  equipment?: Pick<Equipment, "serial_number" | "make" | "model" | "equipment_type" | "status" | "region"> | null;
+  service_tickets?: Pick<ServiceTicket, "ticket_number" | "status" | "priority"> | null;
+};
+
+export type EquipmentCostEventType =
+  | "purchase"
+  | "repair_parts"
+  | "repair_labor"
+  | "transport"
+  | "maintenance"
+  | "warranty_credit"
+  | "adjustment";
+
+export type EquipmentCostEvent = {
+  id: string;
+  equipment_id: string;
+  service_ticket_id: string | null;
+  maintenance_task_id: string | null;
+  event_type: EquipmentCostEventType;
+  amount: number;
+  vendor: string | null;
+  invoice_number: string | null;
+  occurred_at: string;
+  notes: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+  equipment?: Pick<Equipment, "serial_number" | "make" | "model" | "equipment_type" | "status" | "region"> | null;
+  service_tickets?: Pick<ServiceTicket, "ticket_number" | "status" | "priority"> | null;
+};
+
 export type EquipmentDetailData = {
   equipment: Equipment;
   assignments: Array<Assignment & { patients?: Pick<Patient, "full_name" | "date_of_birth" | "region"> }>;
   returns: Array<ReturnRecord & { patients?: Pick<Patient, "full_name" | "date_of_birth" | "region"> }>;
   service_tickets: Array<ServiceTicket & { service_ticket_updates?: Array<{ id: string; note: string; status: TicketStatus | null; created_at: string }> }>;
   activity: ActivityLog[];
+  movements?: EquipmentMovement[];
+  maintenance?: PreventiveMaintenanceTask[];
+  cost_events?: EquipmentCostEvent[];
   repair_count: number;
 };
 
@@ -248,6 +400,36 @@ export type AvailabilitySummaryItem = {
   notes: string | null;
 };
 
+export type AvailabilityTransferRecommendation = {
+  equipment_type: EquipmentType;
+  from_region: FloridaRegion;
+  to_region: FloridaRegion;
+  quantity: number;
+  source_equipment: Array<Pick<Equipment, "id" | "serial_number" | "make" | "model">>;
+  source_available: number;
+  source_minimum: number;
+  destination_available: number;
+  destination_minimum: number;
+  destination_shortage: number;
+  reason: string;
+};
+
+export type AvailabilityProcurementNeed = {
+  region: FloridaRegion;
+  equipment_type: EquipmentType;
+  quantity: number;
+  available: number;
+  minimum_available: number;
+  reason: string;
+};
+
+export type AvailabilityRecommendations = {
+  transfers: AvailabilityTransferRecommendation[];
+  procurement_needs: AvailabilityProcurementNeed[];
+  shortage_count: number;
+  healthy_count: number;
+};
+
 export type SavedView = {
   id: string;
   user_id: string;
@@ -313,6 +495,69 @@ export type NotificationsResponse = {
     warning: number;
     info: number;
   };
+};
+
+export type WorkQueueItem = {
+  id: string;
+  kind: "return" | "service_ticket" | "repair_exception" | "maintenance";
+  severity: NotificationSeverity;
+  title: string;
+  entity_label: string;
+  detail: string;
+  href: string;
+  age_days: number;
+  created_at: string;
+};
+
+export type WorkQueueResponse = {
+  items: WorkQueueItem[];
+  counts: {
+    total: number;
+    critical: number;
+    warning: number;
+    info: number;
+  };
+  generated_at: string;
+};
+
+export type GlobalSearchResult = {
+  id: string;
+  kind: "equipment" | "patient" | "service_ticket" | "return" | "assignment" | "appointment";
+  title: string;
+  subtitle: string;
+  href: string;
+  metadata: Record<string, unknown>;
+};
+
+export type GlobalSearchResponse = {
+  query: string;
+  results: GlobalSearchResult[];
+};
+
+export type HandoffNoteType = "dispatch" | "driver" | "repair" | "inventory" | "admin";
+export type HandoffNoteStatus = "open" | "resolved" | "archived";
+
+export type HandoffNote = {
+  id: string;
+  note_type: HandoffNoteType;
+  status: HandoffNoteStatus;
+  priority: "low" | "medium" | "high" | "urgent";
+  region: FloridaRegion | null;
+  title: string;
+  body: string;
+  context_label: string | null;
+  equipment_id: string | null;
+  patient_id: string | null;
+  appointment_id: string | null;
+  service_ticket_id: string | null;
+  created_by: string | null;
+  resolved_by: string | null;
+  resolved_at: string | null;
+  created_at: string;
+  updated_at: string;
+  profiles?: Pick<Profile, "full_name" | "role"> | null;
+  equipment?: Pick<Equipment, "serial_number" | "make" | "model" | "status" | "region"> | null;
+  patients?: Pick<Patient, "full_name" | "date_of_birth" | "region"> | null;
 };
 
 export type MessageStaffMember = Pick<Profile, "id" | "full_name" | "role"> & {

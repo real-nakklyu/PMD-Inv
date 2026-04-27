@@ -119,6 +119,12 @@ class SupabaseRestClient:
     def table(self, table_name: str) -> PostgrestQuery:
         return PostgrestQuery(self, table_name)
 
+    def rpc(self, function_name: str, payload: dict[str, Any] | None = None) -> QueryResult:
+        url = f"{self.rest_url}/rpc/{quote(function_name)}"
+        with httpx.Client(timeout=20) as client:
+            response = client.post(url, headers=self.headers, json=payload or {})
+        return self._parse_response(response)
+
     def execute_query(self, query: PostgrestQuery) -> QueryResult:
         url = f"{self.rest_url}/{quote(query.table_name)}"
         headers = {**self.headers, **query.headers}
@@ -130,7 +136,9 @@ class SupabaseRestClient:
                 headers=headers,
                 json=query.payload,
             )
+        return self._parse_response(response, expect_single=query.expect_single, head=query.head)
 
+    def _parse_response(self, response: httpx.Response, *, expect_single: bool = False, head: bool = False) -> QueryResult:
         if response.status_code >= 400:
             detail = response.text
             try:
@@ -145,8 +153,8 @@ class SupabaseRestClient:
             total = content_range.rsplit("/", 1)[1]
             count = int(total) if total.isdigit() else None
 
-        if query.head or response.status_code == 204 or not response.content:
-            return QueryResult(data=[] if not query.expect_single else None, count=count)
+        if head or response.status_code == 204 or not response.content:
+            return QueryResult(data=[] if not expect_single else None, count=count)
 
         data = response.json()
         return QueryResult(data=data, count=count)

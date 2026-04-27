@@ -13,8 +13,8 @@ import { useToast } from "@/components/ui/toast";
 import { apiGet, apiSend } from "@/lib/api";
 import { attachmentBucket, makeAttachmentPath } from "@/lib/storage-path";
 import { createSupabaseBrowserClient, hasSupabaseBrowserEnv } from "@/lib/supabase";
-import { cn, humanize } from "@/lib/utils";
-import type { MessageAttachment, MessageStaffMember, MessageThread, StaffMessage } from "@/types/domain";
+import { cn, humanize, pluralize } from "@/lib/utils";
+import type { MessageAttachment, MessageStaffMember, MessageThread, ProfileMe, StaffMessage } from "@/types/domain";
 
 type SignedAttachment = MessageAttachment & { url: string | null };
 type RealtimeStatus = "off" | "connecting" | "connected" | "fallback";
@@ -28,6 +28,7 @@ const messagingWsUrl = process.env.NEXT_PUBLIC_MESSAGING_WS_URL;
 const messageUnreadEventName = "pmdinv:message-unread-count";
 
 export function MessagesClient() {
+  const [currentUser, setCurrentUser] = useState<MessageStaffMember | null>(null);
   const [staff, setStaff] = useState<MessageStaffMember[]>([]);
   const [threads, setThreads] = useState<MessageThread[]>([]);
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(() => {
@@ -40,28 +41,67 @@ export function MessagesClient() {
   const [body, setBody] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [isLoadingThreads, setIsLoadingThreads] = useState(true);
+  const [isLoadingStaff, setIsLoadingStaff] = useState(false);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const [isSending, setIsSending] = useState(false);
+  const [hasLoadedStaff, setHasLoadedStaff] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [realtimeStatus, setRealtimeStatus] = useState<RealtimeStatus>(messagingWsUrl ? "connecting" : "off");
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
   const selectedThreadIdRef = useRef<string | null>(selectedThreadId);
+  const threadsRef = useRef<MessageThread[]>([]);
   const { toast } = useToast();
 
   const selectedThread = threads.find((thread) => thread.id === selectedThreadId) ?? null;
-  const currentUser = staff.find((member) => member.is_me) ?? null;
   const totalUnread = threads.reduce((sum, thread) => sum + thread.unread_count, 0);
+
+  const updateThreads = useCallback((updater: (current: MessageThread[]) => MessageThread[]) => {
+    setThreads((current) => {
+      const next = sortThreadsByActivity(updater(current));
+      publishMessageUnreadTotal(next);
+      return next;
+    });
+  }, []);
+
+  const syncThreadPreview = useCallback((
+    threadId: string,
+    message: StaffMessage,
+    options: { incrementUnread?: boolean; resetUnread?: boolean } = {}
+  ) => {
+    if (!threadsRef.current.some((thread) => thread.id === threadId)) {
+      return false;
+    }
+
+    updateThreads((current) => current.map((thread) => {
+      if (thread.id !== threadId) return thread;
+      return {
+        ...thread,
+        latest_message: {
+          ...message,
+          attachments: message.attachments ?? [],
+          sender: message.sender ?? null
+        },
+        updated_at: message.created_at || thread.updated_at,
+        unread_count: options.resetUnread ? 0 : options.incrementUnread ? thread.unread_count + 1 : thread.unread_count
+      };
+    }));
+
+    return true;
+  }, [updateThreads]);
 
   const loadThreads = useCallback(async () => {
     try {
       const data = await apiGet<MessageThread[]>("/messages/threads");
-      setThreads(data);
-      publishMessageUnreadTotal(data);
+      const nextThreads = sortThreadsByActivity(data);
+      setThreads(nextThreads);
+      publishMessageUnreadTotal(nextThreads);
       setError(null);
-      if (!selectedThreadIdRef.current && data.length && shouldAutoselectThread()) {
-        setSelectedThreadId(data[0].id);
+      if (selectedThreadIdRef.current && !nextThreads.some((thread) => thread.id === selectedThreadIdRef.current)) {
+        setSelectedThreadId(nextThreads[0]?.id ?? null);
+      } else if (!selectedThreadIdRef.current && nextThreads.length && shouldAutoselectThread()) {
+        setSelectedThreadId(nextThreads[0].id);
       }
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Unable to load conversations.");
@@ -70,14 +110,38 @@ export function MessagesClient() {
     }
   }, []);
 
-  const loadStaff = useCallback(async () => {
+  const loadCurrentUser = useCallback(async () => {
     try {
-      const data = await apiGet<MessageStaffMember[]>("/messages/staff");
-      setStaff(data);
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Unable to load staff.");
+      const data = await apiGet<ProfileMe>("/profiles/me");
+      if (data.profile) {
+        setCurrentUser({
+          id: data.profile.id,
+          full_name: data.profile.full_name,
+          role: data.profile.role,
+          is_me: true
+        });
+      }
+    } catch {
+      // Auth gate handles access and session problems globally.
     }
   }, []);
+
+  const loadStaff = useCallback(async () => {
+    if (hasLoadedStaff || isLoadingStaff) return;
+    setIsLoadingStaff(true);
+    try {
+      const data = await apiGet<MessageStaffMember[]>("/messages/staff?limit=150");
+      setStaff(data);
+      setHasLoadedStaff(true);
+      if (!currentUser) {
+        setCurrentUser(data.find((member) => member.is_me) ?? null);
+      }
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Unable to load staff.");
+    } finally {
+      setIsLoadingStaff(false);
+    }
+  }, [currentUser, hasLoadedStaff, isLoadingStaff]);
 
   const loadMessages = useCallback(async (threadId: string, options: { silent?: boolean } = {}) => {
     if (!options.silent) setIsLoadingMessages(true);
@@ -85,21 +149,25 @@ export function MessagesClient() {
       const data = await apiGet<StaffMessage[]>(`/messages/threads/${threadId}/messages`);
       setMessages(data);
       setError(null);
-      await loadThreads();
+      updateThreads((current) => current.map((thread) => thread.id === threadId ? { ...thread, unread_count: 0 } : thread));
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Unable to load messages.");
     } finally {
       if (!options.silent) setIsLoadingMessages(false);
     }
-  }, [loadThreads]);
+  }, [updateThreads]);
 
   useEffect(() => {
     const firstLoad = window.setTimeout(() => {
-      loadStaff();
+      loadCurrentUser();
       loadThreads();
     }, 0);
     return () => window.clearTimeout(firstLoad);
-  }, [loadStaff, loadThreads]);
+  }, [loadCurrentUser, loadThreads]);
+
+  useEffect(() => {
+    threadsRef.current = threads;
+  }, [threads]);
 
   const handleRealtimePayload = useCallback((payload: RealtimePayload) => {
     if (payload.type === "message_error") {
@@ -113,7 +181,9 @@ export function MessagesClient() {
     if (!payload.message) return;
     const incoming = payload.type === "message_sent" ? { ...payload.message, is_mine: true } : payload.message;
     if (incoming.thread_id !== selectedThreadIdRef.current) {
-      loadThreads();
+      if (!syncThreadPreview(incoming.thread_id, incoming, { incrementUnread: !incoming.is_mine })) {
+        void loadThreads();
+      }
       return;
     }
 
@@ -124,8 +194,8 @@ export function MessagesClient() {
       if (current.some((message) => message.id === incoming.id)) return current;
       return [...current, incoming];
     });
-    loadThreads();
-  }, [loadThreads, toast]);
+    syncThreadPreview(incoming.thread_id, incoming, { resetUnread: true });
+  }, [loadThreads, syncThreadPreview, toast]);
 
   useEffect(() => {
     const configuredMessagingWsUrl = messagingWsUrl;
@@ -244,7 +314,7 @@ export function MessagesClient() {
         thread_type: options?.thread_type ?? (memberIds.length > 1 ? "group" : "direct")
       });
       setSelectedThreadId(thread.id);
-      await loadThreads();
+      updateThreads((current) => [thread, ...current.filter((existing) => existing.id !== thread.id)]);
       await loadMessages(thread.id, { silent: true });
       toast({ kind: "success", title: "Conversation ready", description: threadTitle(thread, currentUser?.id) });
     } catch (reason) {
@@ -269,29 +339,28 @@ export function MessagesClient() {
       if (sentFiles.length === 0 && socket?.readyState === WebSocket.OPEN && currentUser) {
         const tempId = crypto.randomUUID();
         const now = new Date().toISOString();
-        setMessages((current) => [
-          ...current,
-          {
-            id: tempId,
-            thread_id: selectedThreadId,
-            sender_id: currentUser.id,
-            body: sentBody,
-            created_at: now,
-            updated_at: now,
-            deleted_at: null,
-            sender: currentUser,
-            attachments: [],
-            is_mine: true
-          }
-        ]);
+        const optimisticMessage: StaffMessage = {
+          id: tempId,
+          thread_id: selectedThreadId,
+          sender_id: currentUser.id,
+          body: sentBody,
+          created_at: now,
+          updated_at: now,
+          deleted_at: null,
+          sender: currentUser,
+          attachments: [],
+          is_mine: true
+        };
+        setMessages((current) => [...current, optimisticMessage]);
+        syncThreadPreview(selectedThreadId, optimisticMessage, { resetUnread: true });
         socket.send(JSON.stringify({ type: "send_message", temp_id: tempId, thread_id: selectedThreadId, body: sentBody }));
-        setIsSending(false);
         return;
       }
 
       const message = await apiSend<StaffMessage>(`/messages/threads/${selectedThreadId}/messages`, "POST", { body: sentBody });
-      setMessages((current) => [...current, { ...message, body: sentBody }]);
-      setIsSending(false);
+      const completeMessage = { ...message, body: sentBody };
+      setMessages((current) => [...current, completeMessage]);
+      syncThreadPreview(selectedThreadId, completeMessage, { resetUnread: true });
       if (sentFiles.length) {
         if (!hasSupabaseBrowserEnv()) {
           throw new Error("Supabase browser environment variables are required for message attachments.");
@@ -314,9 +383,9 @@ export function MessagesClient() {
         }
         await loadMessages(selectedThreadId, { silent: true });
       }
-      loadThreads();
     } catch (reason) {
       setBody((current) => current || body);
+      setFiles((current) => current.length ? current : files);
       toast({ kind: "error", title: "Could not send message", description: reason instanceof Error ? reason.message : "Please try again." });
     } finally {
       setIsSending(false);
@@ -334,11 +403,11 @@ export function MessagesClient() {
       await apiSend(`/messages/threads/${selectedThreadId}`, "DELETE");
       const remaining = threads.filter((thread) => thread.id !== selectedThreadId);
       setThreads(remaining);
+      publishMessageUnreadTotal(remaining);
       setSelectedThreadId(remaining[0]?.id ?? null);
       setMessages([]);
       setConfirmDeleteOpen(false);
       toast({ kind: "success", title: "Conversation removed", description: "It was removed from your messages." });
-      await loadThreads();
     } catch (reason) {
       toast({ kind: "error", title: "Could not remove conversation", description: reason instanceof Error ? reason.message : "Please try again." });
     }
@@ -365,13 +434,18 @@ export function MessagesClient() {
               <button
                 key={thread.id}
                 type="button"
+                aria-current={selectedThreadId === thread.id ? "true" : undefined}
                 className={cn(
-                  "flex w-full items-center gap-3 rounded-md px-3 py-3 text-left transition hover:bg-accent/60 active:scale-[0.99]",
-                  selectedThreadId === thread.id && "border-primary/50 bg-accent"
+                  "relative flex w-full items-center gap-3 overflow-hidden rounded-md border border-transparent px-3 py-3 text-left transition hover:bg-accent/60 active:scale-[0.99]",
+                  selectedThreadId === thread.id && "border-primary/55 bg-primary/10 shadow-sm shadow-primary/10 ring-1 ring-primary/20 hover:bg-primary/15 dark:bg-primary/15 dark:hover:bg-primary/20"
                 )}
                 onClick={() => setSelectedThreadId(thread.id)}
               >
-                <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full border border-primary/20 bg-primary/10 text-sm font-semibold text-primary">
+                {selectedThreadId === thread.id ? <span className="absolute inset-y-2 left-0 w-1 rounded-r-full bg-primary" aria-hidden="true" /> : null}
+                <span className={cn(
+                  "grid h-11 w-11 shrink-0 place-items-center rounded-full border border-primary/20 bg-primary/10 text-sm font-semibold text-primary",
+                  selectedThreadId === thread.id && "border-primary/50 bg-primary text-primary-foreground shadow-sm shadow-primary/20"
+                )}>
                   {threadInitials(thread, currentUser?.id)}
                 </span>
                 <span className="min-w-0 flex-1">
@@ -402,18 +476,44 @@ export function MessagesClient() {
             </div>
             <div className="relative mb-3">
               <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-              <Input className="pl-9" placeholder="Search staff" value={staffSearch} onChange={(event) => setStaffSearch(event.target.value)} />
+              <Input
+                className="pl-9"
+                placeholder="Search staff"
+                value={staffSearch}
+                onFocus={() => void loadStaff()}
+                onChange={(event) => {
+                  setStaffSearch(event.target.value);
+                  if (!hasLoadedStaff) {
+                    void loadStaff();
+                  }
+                }}
+              />
             </div>
             <Button
               type="button"
               className="mb-3 w-full bg-secondary text-secondary-foreground hover:bg-secondary/80"
-              onClick={() => startThread(filteredStaff.map((member) => member.id), { title: "All Staff", thread_type: "group" })}
-              disabled={!filteredStaff.length}
+              onClick={async () => {
+                if (!hasLoadedStaff) {
+                  await loadStaff();
+                }
+                await startThread(filteredStaff.map((member) => member.id), { title: "All Staff", thread_type: "group" });
+              }}
+              disabled={isLoadingStaff || !filteredStaff.length}
             >
               <Users className="h-4 w-4" />
               Message all visible staff
             </Button>
             <div className="max-h-56 space-y-2 overflow-y-auto">
+              {!hasLoadedStaff ? (
+                <div className="rounded-md border border-dashed border-border px-3 py-4 text-sm text-muted-foreground">
+                  Tap the search box to load staff.
+                </div>
+              ) : null}
+              {isLoadingStaff ? (
+                <div className="rounded-md border border-border bg-muted/25 px-3 py-4 text-sm text-muted-foreground">
+                  Loading staff...
+                </div>
+              ) : null}
               {filteredStaff.map((member) => (
                 <button
                   key={member.id}
@@ -428,6 +528,11 @@ export function MessagesClient() {
                   <MessageCircle className="h-4 w-4 text-primary" />
                 </button>
               ))}
+              {hasLoadedStaff && !isLoadingStaff && !filteredStaff.length ? (
+                <div className="rounded-md border border-dashed border-border px-3 py-4 text-sm text-muted-foreground">
+                  No staff matched that search.
+                </div>
+              ) : null}
             </div>
           </div>
         </CardContent>
@@ -450,7 +555,7 @@ export function MessagesClient() {
               <div className="min-w-0">
               <div className="truncate text-base font-semibold">{selectedThread ? threadTitle(selectedThread, currentUser?.id) : "Select a conversation"}</div>
               <div className="text-xs text-muted-foreground">
-                {selectedThread ? `${selectedThread.members.length} member${selectedThread.members.length === 1 ? "" : "s"}` : "Choose a staff member or conversation to begin."}
+                {selectedThread ? pluralize(selectedThread.members.length, "member") : "Choose a staff member or conversation to begin."}
               </div>
               </div>
             </div>
@@ -624,6 +729,14 @@ function formatUnreadMessages(count: number) {
 function shouldAutoselectThread() {
   if (typeof window === "undefined") return false;
   return window.matchMedia("(min-width: 1280px)").matches;
+}
+
+function sortThreadsByActivity(threads: MessageThread[]) {
+  return [...threads].sort((left, right) => {
+    const leftTime = left.latest_message?.created_at ?? left.updated_at;
+    const rightTime = right.latest_message?.created_at ?? right.updated_at;
+    return new Date(rightTime).getTime() - new Date(leftTime).getTime();
+  });
 }
 
 function publishMessageUnreadTotal(threads: MessageThread[]) {

@@ -15,7 +15,7 @@ import { ListSkeleton, TableSkeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/toast";
 import { apiGet, apiSend } from "@/lib/api";
 import { downloadCsv } from "@/lib/export";
-import { currency, humanize } from "@/lib/utils";
+import { currency, humanize, pluralize } from "@/lib/utils";
 import { equipmentStatuses, equipmentTypes, floridaRegions, type Equipment, type EquipmentPage } from "@/types/domain";
 
 const column = createColumnHelper<Equipment>();
@@ -136,7 +136,7 @@ export function InventoryTable() {
           notes: item.notes ?? ""
         }))
       );
-      toast({ kind: "success", title: "Inventory CSV downloaded", description: `${items.length} records exported.` });
+      toast({ kind: "success", title: "Inventory CSV downloaded", description: `${pluralize(items.length, "record")} exported.` });
     } catch (reason) {
       toast({ kind: "error", title: "Could not export inventory", description: reason instanceof Error ? reason.message : "Please try again." });
     }
@@ -256,7 +256,7 @@ export function InventoryTable() {
         </div>
         <div className="mt-4 flex items-center justify-between rounded-md bg-muted/35 px-3 py-2">
           <div className="text-xs font-medium text-muted-foreground">
-            {totalRecords} records
+            {pluralize(totalRecords, "record")}
             <span className="ml-2 text-muted-foreground/75">Page {pageIndex + 1} of {totalPages}</span>
           </div>
           <div className="flex gap-2">

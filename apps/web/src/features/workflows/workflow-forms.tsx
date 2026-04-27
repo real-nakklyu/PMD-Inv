@@ -1,7 +1,7 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { CheckCircle2, ClipboardPlus, Loader2, RotateCcw, Stethoscope, UserPlus } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ClipboardPlus, Loader2, RotateCcw, Stethoscope, UserPlus } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
@@ -92,6 +92,9 @@ export function AssignmentForm({ onSaved }: { onSaved?: () => void }) {
     resolver: zodResolver(assignmentSchema),
     defaultValues: { equipment_id: "", patient_id: "", region: "Tampa", notes: "" }
   });
+  const regionMismatch = selectedEquipment?.region && selectedPatient?.region && selectedEquipment.region !== selectedPatient.region
+    ? { equipment: selectedEquipment.region, patient: selectedPatient.region }
+    : null;
 
   async function onSubmit(values: z.infer<typeof assignmentSchema>) {
     setMessage(null);
@@ -125,6 +128,7 @@ export function AssignmentForm({ onSaved }: { onSaved?: () => void }) {
             onChange={(option) => {
               setSelectedEquipment(option);
               form.setValue("equipment_id", option?.id ?? "", { shouldValidate: true });
+              if (option?.region && !selectedPatient?.region) form.setValue("region", option.region as (typeof floridaRegions)[number], { shouldValidate: true });
             }}
           />
           <AsyncSearchPicker
@@ -135,14 +139,23 @@ export function AssignmentForm({ onSaved }: { onSaved?: () => void }) {
             onChange={(option) => {
               setSelectedPatient(option);
               form.setValue("patient_id", option?.id ?? "", { shouldValidate: true });
+              if (option?.region) form.setValue("region", option.region as (typeof floridaRegions)[number], { shouldValidate: true });
             }}
           />
           <Select defaultValue="Tampa" {...form.register("region")}>
             {floridaRegions.map((region) => <option key={region}>{region}</option>)}
           </Select>
+          {regionMismatch ? (
+            <div className="flex gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>
+                This unit is in {regionMismatch.equipment}, but the patient is in {regionMismatch.patient}. Record a movement to {regionMismatch.patient} before assigning this item.
+              </span>
+            </div>
+          ) : null}
           <Textarea placeholder="Assignment notes" {...form.register("notes")} />
           {message ? <p className="text-xs text-muted-foreground">{message}</p> : null}
-          <Button type="submit">Assign</Button>
+          <Button type="submit" disabled={Boolean(regionMismatch)}>Assign</Button>
         </form>
       </CardContent>
     </Card>
@@ -336,7 +349,8 @@ function equipmentToOption(item: Pick<Equipment, "id" | "serial_number" | "make"
   return {
     id: item.id,
     label: `${item.serial_number} - ${item.make} ${item.model}`,
-    description: `${humanize(item.equipment_type)} / ${humanize(item.status)}${item.region ? ` / ${item.region}` : ""}`
+    description: `${humanize(item.equipment_type)} / ${humanize(item.status)}${item.region ? ` / ${item.region}` : ""}`,
+    region: item.region
   };
 }
 
@@ -344,7 +358,8 @@ function patientToOption(item: Pick<Patient, "id" | "full_name" | "date_of_birth
   return {
     id: item.id,
     label: item.full_name,
-    description: `DOB ${new Date(item.date_of_birth).toLocaleDateString()} / ${item.region}`
+    description: `DOB ${new Date(item.date_of_birth).toLocaleDateString()} / ${item.region}`,
+    region: item.region
   };
 }
 

@@ -60,7 +60,7 @@ export async function GET(request: NextRequest) {
       equipment_id: item.equipment_id,
       patient_id: item.patient_id,
       return_id: item.id,
-      message: `Overdue return reminder: return ${item.id} has been open for ${overdueDays} days.`,
+      message: `Overdue return reminder: return ${item.id} has been open for ${overdueDays} ${overdueDays === 1 ? "day" : "days"}.`,
       metadata: { source: "vercel_cron", status: item.status, overdue_days: overdueDays }
     };
   });

@@ -11,9 +11,12 @@ from app.schemas.operations import (
     AppointmentCreate,
     AppointmentOut,
     AppointmentUpdate,
+    AvailabilityRecommendations,
+    AvailabilityProcurementNeed,
     AvailabilitySummaryItem,
     AvailabilityThresholdOut,
     AvailabilityThresholdUpsert,
+    AvailabilityTransferRecommendation,
     DeliverySetupChecklistOut,
     DeliverySetupChecklistUpsert,
     SavedViewCreate,
@@ -21,6 +24,7 @@ from app.schemas.operations import (
     SavedViewUpdate,
 )
 from app.services.audit import log_change_activity
+from app.services.movements import maybe_record_delivery_completion_movement
 
 router = APIRouter(tags=["operations"])
 
@@ -75,6 +79,7 @@ def update_appointment(
     before = AppointmentRepository(client).get(appointment_id)
     data = payload.model_dump(mode="json", exclude_unset=True)
     record = AppointmentRepository(client).update(appointment_id, data)
+    maybe_record_delivery_completion_movement(client, actor_id=user.id, before=before, after=record)
     log_change_activity(
         client,
         event_type="appointment_status_changed",
@@ -103,30 +108,103 @@ def list_thresholds(_: Annotated[AuthUser, Depends(get_current_user)]):
 
 @router.get("/availability-thresholds/summary", response_model=list[AvailabilitySummaryItem])
 def availability_summary(_: Annotated[AuthUser, Depends(get_current_user)]):
+    return _availability_rows()
+
+
+@router.get("/availability-thresholds/recommendations", response_model=AvailabilityRecommendations)
+def availability_recommendations(_: Annotated[AuthUser, Depends(get_current_user)]):
     client = get_supabase()
-    equipment = client.table("equipment").select("region,equipment_type,status").is_("archived_at", "null").execute().data or []
-    thresholds = client.table("availability_thresholds").select("*").execute().data or []
-    threshold_map = {(item["region"], item["equipment_type"]): item for item in thresholds}
-    rows: list[dict[str, Any]] = []
-    for region in florida_regions:
-        for equipment_type in ("power_wheelchair", "scooter"):
-            matching = [item for item in equipment if item["region"] == region and item["equipment_type"] == equipment_type]
-            available = len([item for item in matching if item["status"] == "available"])
-            threshold = threshold_map.get((region, equipment_type))
-            minimum = int(threshold.get("minimum_available", 0)) if threshold else 0
-            rows.append(
-                {
-                    "region": region,
-                    "equipment_type": equipment_type,
-                    "available": available,
-                    "total": len(matching),
-                    "minimum_available": minimum,
-                    "shortage": max(0, minimum - available),
-                    "threshold_id": threshold.get("id") if threshold else None,
-                    "notes": threshold.get("notes") if threshold else None,
-                }
+    rows = [AvailabilitySummaryItem(**row) for row in _availability_rows()]
+    available_equipment = (
+        client.table("equipment")
+        .select("id,serial_number,make,model,region,equipment_type,status,updated_at")
+        .eq("status", "available")
+        .is_("archived_at", "null")
+        .order("updated_at", desc=False)
+        .limit(1000)
+        .execute()
+        .data
+        or []
+    )
+    available_by_region_type: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for item in available_equipment:
+        available_by_region_type.setdefault((item["region"], item["equipment_type"]), []).append(item)
+
+    shortages = sorted([row for row in rows if row.shortage > 0], key=lambda item: (-item.shortage, item.region))
+    surplus_by_type: dict[str, list[AvailabilitySummaryItem]] = {}
+    for row in rows:
+        surplus = row.available - row.minimum_available
+        if surplus > 0:
+            surplus_by_type.setdefault(row.equipment_type, []).append(row)
+
+    remaining_surplus = {
+        (row.region, row.equipment_type): row.available - row.minimum_available
+        for row in rows
+        if row.available > row.minimum_available
+    }
+    transfers: list[AvailabilityTransferRecommendation] = []
+    procurement_needs: list[AvailabilityProcurementNeed] = []
+
+    for shortage in shortages:
+        remaining_shortage = shortage.shortage
+        sources = sorted(
+            surplus_by_type.get(shortage.equipment_type, []),
+            key=lambda row: (-(remaining_surplus.get((row.region, row.equipment_type), 0)), row.region),
+        )
+        for source in sources:
+            if source.region == shortage.region or remaining_shortage <= 0:
+                continue
+            source_key = (source.region, source.equipment_type)
+            surplus = remaining_surplus.get(source_key, 0)
+            if surplus <= 0:
+                continue
+            quantity = min(remaining_shortage, surplus)
+            candidates = available_by_region_type.get(source_key, [])[:quantity]
+            available_by_region_type[source_key] = available_by_region_type.get(source_key, [])[quantity:]
+            transfers.append(
+                AvailabilityTransferRecommendation(
+                    equipment_type=shortage.equipment_type,
+                    from_region=source.region,
+                    to_region=shortage.region,
+                    quantity=quantity,
+                    source_equipment=[
+                        {
+                            "id": item["id"],
+                            "serial_number": item["serial_number"],
+                            "make": item["make"],
+                            "model": item["model"],
+                        }
+                        for item in candidates
+                    ],
+                    source_available=source.available,
+                    source_minimum=source.minimum_available,
+                    destination_available=shortage.available,
+                    destination_minimum=shortage.minimum_available,
+                    destination_shortage=shortage.shortage,
+                    reason=f"{source.region} has {_unit_label(surplus)} above target while {shortage.region} is short {_unit_label(shortage.shortage)}.",
+                )
             )
-    return rows
+            remaining_surplus[source_key] = surplus - quantity
+            remaining_shortage -= quantity
+
+        if remaining_shortage > 0:
+            procurement_needs.append(
+                AvailabilityProcurementNeed(
+                    region=shortage.region,
+                    equipment_type=shortage.equipment_type,
+                    quantity=remaining_shortage,
+                    available=shortage.available,
+                    minimum_available=shortage.minimum_available,
+                    reason="No matching region has enough surplus available to fully cover this shortage.",
+                )
+            )
+
+    return AvailabilityRecommendations(
+        transfers=transfers,
+        procurement_needs=procurement_needs,
+        shortage_count=len(shortages),
+        healthy_count=len([row for row in rows if row.shortage == 0 and row.minimum_available > 0]),
+    )
 
 
 @router.put("/availability-thresholds", response_model=AvailabilityThresholdOut)
@@ -245,3 +323,34 @@ def delete_saved_view(view_id: str, user: Annotated[AuthUser, Depends(get_curren
 
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You can only delete your own saved views.")
     repo.delete(view_id)
+
+
+def _availability_rows() -> list[dict[str, Any]]:
+    client = get_supabase()
+    equipment = client.table("equipment").select("region,equipment_type,status").is_("archived_at", "null").execute().data or []
+    thresholds = client.table("availability_thresholds").select("*").execute().data or []
+    threshold_map = {(item["region"], item["equipment_type"]): item for item in thresholds}
+    rows: list[dict[str, Any]] = []
+    for region in florida_regions:
+        for equipment_type in ("power_wheelchair", "scooter"):
+            matching = [item for item in equipment if item["region"] == region and item["equipment_type"] == equipment_type]
+            available = len([item for item in matching if item["status"] == "available"])
+            threshold = threshold_map.get((region, equipment_type))
+            minimum = int(threshold.get("minimum_available", 0)) if threshold else 0
+            rows.append(
+                {
+                    "region": region,
+                    "equipment_type": equipment_type,
+                    "available": available,
+                    "total": len(matching),
+                    "minimum_available": minimum,
+                    "shortage": max(0, minimum - available),
+                    "threshold_id": threshold.get("id") if threshold else None,
+                    "notes": threshold.get("notes") if threshold else None,
+                }
+            )
+    return rows
+
+
+def _unit_label(count: int) -> str:
+    return f"{count} {'unit' if count == 1 else 'units'}"
