@@ -72,6 +72,7 @@ create type public.activity_event_type as enum (
   'equipment_created',
   'equipment_edited',
   'patient_created',
+  'patient_note_added',
   'patient_assigned',
   'assignment_ended',
   'return_initiated',
@@ -108,6 +109,19 @@ create table public.patients (
   constraint patients_full_name_length check (char_length(trim(full_name)) >= 2),
   constraint patients_state_length check (char_length(trim(state)) between 2 and 40)
 );
+
+create table public.patient_notes (
+  id uuid primary key default gen_random_uuid(),
+  patient_id uuid not null references public.patients(id) on delete cascade,
+  body text not null,
+  created_by uuid references public.profiles(id),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint patient_notes_body_length check (char_length(trim(body)) between 2 and 4000)
+);
+
+create index patient_notes_patient_idx on public.patient_notes(patient_id, created_at desc);
+create index patient_notes_created_by_idx on public.patient_notes(created_by, created_at desc);
 
 create table public.equipment (
   id uuid primary key default gen_random_uuid(),
@@ -263,6 +277,10 @@ create trigger patients_set_updated_at
 before update on public.patients
 for each row execute function public.set_updated_at();
 
+create trigger patient_notes_set_updated_at
+before update on public.patient_notes
+for each row execute function public.set_updated_at();
+
 create trigger equipment_set_updated_at
 before update on public.equipment
 for each row execute function public.set_updated_at();
@@ -308,6 +326,7 @@ group by equipment_id;
 
 alter table public.profiles enable row level security;
 alter table public.patients enable row level security;
+alter table public.patient_notes enable row level security;
 alter table public.equipment enable row level security;
 alter table public.assignments enable row level security;
 alter table public.returns enable row level security;
@@ -336,6 +355,22 @@ on public.patients for all
 to authenticated
 using (public.has_role(array['admin','dispatcher']::public.app_role[]))
 with check (public.has_role(array['admin','dispatcher']::public.app_role[]));
+
+create policy "staff can read patient notes"
+on public.patient_notes for select
+to authenticated
+using (public.current_user_role() is not null);
+
+create policy "staff can create patient notes"
+on public.patient_notes for insert
+to authenticated
+with check (public.current_user_role() is not null);
+
+create policy "admins can manage patient notes"
+on public.patient_notes for all
+to authenticated
+using (public.has_role(array['admin']::public.app_role[]))
+with check (public.has_role(array['admin']::public.app_role[]));
 
 create policy "staff can read equipment"
 on public.equipment for select

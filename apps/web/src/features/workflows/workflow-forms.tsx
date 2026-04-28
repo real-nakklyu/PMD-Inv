@@ -35,8 +35,7 @@ const patientSchema = z.object({
   address_line2: z.string().optional(),
   city: z.string().optional(),
   state: z.string().min(2).max(40),
-  postal_code: z.string().optional(),
-  notes: z.string().optional()
+  postal_code: z.string().optional()
 });
 
 export function PatientForm({ onSaved }: { onSaved?: () => void }) {
@@ -44,7 +43,7 @@ export function PatientForm({ onSaved }: { onSaved?: () => void }) {
   const { toast } = useToast();
   const form = useForm<z.infer<typeof patientSchema>>({
     resolver: zodResolver(patientSchema),
-    defaultValues: { full_name: "", date_of_birth: "", region: "Tampa", address_line1: "", address_line2: "", city: "", state: "FL", postal_code: "", notes: "" }
+    defaultValues: { full_name: "", date_of_birth: "", region: "Tampa", address_line1: "", address_line2: "", city: "", state: "FL", postal_code: "" }
   });
 
   async function onSubmit(values: z.infer<typeof patientSchema>) {
@@ -81,7 +80,6 @@ export function PatientForm({ onSaved }: { onSaved?: () => void }) {
             <Input placeholder="State" {...form.register("state")} />
             <Input placeholder="ZIP" {...form.register("postal_code")} />
           </div>
-          <Textarea placeholder="Patient notes" {...form.register("notes")} />
           {message ? <p className="text-xs text-muted-foreground">{message}</p> : null}
           <Button type="submit">Create Patient</Button>
         </form>
@@ -97,8 +95,7 @@ function compactOptionalPatientFields(values: z.infer<typeof patientSchema>) {
     address_line2: values.address_line2?.trim() || null,
     city: values.city?.trim() || null,
     state: values.state.trim() || "FL",
-    postal_code: values.postal_code?.trim() || null,
-    notes: values.notes?.trim() || null
+    postal_code: values.postal_code?.trim() || null
   };
 }
 

@@ -5,6 +5,10 @@ class PatientRepository(SupabaseRepository):
     table_name = "patients"
 
 
+class PatientNoteRepository(SupabaseRepository):
+    table_name = "patient_notes"
+
+
 class AssignmentRepository(SupabaseRepository):
     table_name = "assignments"
 

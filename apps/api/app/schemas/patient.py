@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.schemas.common import FloridaRegion
 
@@ -43,5 +43,26 @@ class PatientOut(BaseModel):
     notes: str | None = None
     created_at: datetime
     updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class PatientNoteCreate(BaseModel):
+    body: str = Field(min_length=2, max_length=4000)
+
+    @field_validator("body", mode="before")
+    @classmethod
+    def normalize_body(cls, value: str) -> str:
+        return value.strip() if isinstance(value, str) else value
+
+
+class PatientNoteOut(BaseModel):
+    id: UUID
+    patient_id: UUID
+    body: str
+    created_by: UUID | None = None
+    created_at: datetime
+    updated_at: datetime
+    profiles: dict | None = None
 
     model_config = ConfigDict(from_attributes=True)

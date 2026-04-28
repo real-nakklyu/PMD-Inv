@@ -38,7 +38,7 @@ do $$ begin
 exception when duplicate_object then null; end $$;
 
 do $$ begin
-  create type public.activity_event_type as enum ('equipment_created','equipment_edited','patient_created','patient_assigned','assignment_ended','return_initiated','return_status_changed','return_completed','service_ticket_created','service_ticket_status_changed','repair_completed');
+  create type public.activity_event_type as enum ('equipment_created','equipment_edited','patient_created','patient_note_added','patient_assigned','assignment_ended','return_initiated','return_status_changed','return_completed','service_ticket_created','service_ticket_status_changed','repair_completed');
 exception when duplicate_object then null; end $$;
 
 create table if not exists public.profiles (
@@ -67,6 +67,19 @@ create table if not exists public.patients (
   constraint patients_full_name_length check (char_length(trim(full_name)) >= 2),
   constraint patients_state_length check (char_length(trim(state)) between 2 and 40)
 );
+
+create table if not exists public.patient_notes (
+  id uuid primary key default gen_random_uuid(),
+  patient_id uuid not null references public.patients(id) on delete cascade,
+  body text not null,
+  created_by uuid references public.profiles(id),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint patient_notes_body_length check (char_length(trim(body)) between 2 and 4000)
+);
+
+create index if not exists patient_notes_patient_idx on public.patient_notes(patient_id, created_at desc);
+create index if not exists patient_notes_created_by_idx on public.patient_notes(created_by, created_at desc);
 
 create table if not exists public.equipment (
   id uuid primary key default gen_random_uuid(),
@@ -206,6 +219,8 @@ drop trigger if exists profiles_set_updated_at on public.profiles;
 create trigger profiles_set_updated_at before update on public.profiles for each row execute function public.set_updated_at();
 drop trigger if exists patients_set_updated_at on public.patients;
 create trigger patients_set_updated_at before update on public.patients for each row execute function public.set_updated_at();
+drop trigger if exists patient_notes_set_updated_at on public.patient_notes;
+create trigger patient_notes_set_updated_at before update on public.patient_notes for each row execute function public.set_updated_at();
 drop trigger if exists equipment_set_updated_at on public.equipment;
 create trigger equipment_set_updated_at before update on public.equipment for each row execute function public.set_updated_at();
 drop trigger if exists assignments_set_updated_at on public.assignments;

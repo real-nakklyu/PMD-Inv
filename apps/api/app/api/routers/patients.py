@@ -1,13 +1,13 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi import status as http_status
 
 from app.core.auth import AuthUser, get_current_user, require_roles
 from app.db.supabase import get_supabase
-from app.repositories.simple import PatientRepository
+from app.repositories.simple import PatientNoteRepository, PatientRepository
 from app.schemas.common import florida_regions
-from app.schemas.patient import PatientCreate, PatientOut, PatientUpdate
+from app.schemas.patient import PatientCreate, PatientNoteCreate, PatientNoteOut, PatientUpdate, PatientOut
 from app.services.audit import log_change_activity
 
 router = APIRouter(prefix="/patients", tags=["patients"])
@@ -79,12 +79,19 @@ def get_patient_detail(patient_id: str, _: Annotated[AuthUser, Depends(get_curre
         .data
         or []
     )
+    try:
+        patient_notes = _patient_notes_query(client, patient_id).execute().data or []
+    except HTTPException as exc:
+        if "patient_notes" not in str(exc.detail).lower():
+            raise
+        patient_notes = []
     return {
         "patient": patient,
         "assignments": assignments,
         "returns": returns,
         "service_tickets": tickets,
         "activity": activity,
+        "patient_notes": [_normalize_patient_note(note) for note in patient_notes],
     }
 
 
@@ -96,6 +103,31 @@ def create_patient(payload: PatientCreate, user: Annotated[AuthUser, Depends(req
 @router.get("/{patient_id}", response_model=PatientOut)
 def get_patient(patient_id: str, _: Annotated[AuthUser, Depends(get_current_user)]):
     return PatientRepository(get_supabase()).get(patient_id)
+
+
+@router.post("/{patient_id}/notes", response_model=PatientNoteOut, status_code=201)
+def create_patient_note(
+    patient_id: str,
+    payload: PatientNoteCreate,
+    user: Annotated[AuthUser, Depends(get_current_user)],
+):
+    client = get_supabase()
+    patient = PatientRepository(client).get(patient_id)
+    record = PatientNoteRepository(client).create(
+        {
+            "patient_id": patient_id,
+            "body": payload.body.strip(),
+            "created_by": user.id,
+        }
+    )
+    _log_patient_note_activity(
+        client,
+        actor_id=user.id,
+        patient_id=patient_id,
+        patient_name=patient["full_name"],
+    )
+    notes = _patient_notes_query(client, patient_id).eq("id", record["id"]).limit(1).execute().data or []
+    return _normalize_patient_note(notes[0] if notes else record)
 
 
 @router.patch("/{patient_id}", response_model=PatientOut)
@@ -125,3 +157,32 @@ def update_patient(
 @router.delete("/{patient_id}", status_code=http_status.HTTP_204_NO_CONTENT)
 def delete_patient(patient_id: str, _: Annotated[AuthUser, Depends(require_roles("admin"))]):
     PatientRepository(get_supabase()).delete(patient_id)
+
+
+def _patient_notes_query(client, patient_id: str):
+    return (
+        client.table("patient_notes")
+        .select("*, created_by_profile:profiles!patient_notes_created_by_fkey(id,full_name,role)")
+        .eq("patient_id", patient_id)
+        .order("created_at", desc=True)
+    )
+
+
+def _normalize_patient_note(record: dict) -> dict:
+    record["profiles"] = record.pop("created_by_profile", None)
+    return record
+
+
+def _log_patient_note_activity(client, *, actor_id: str, patient_id: str, patient_name: str) -> None:
+    try:
+        client.table("activity_logs").insert(
+            {
+                "event_type": "patient_note_added",
+                "actor_id": actor_id,
+                "patient_id": patient_id,
+                "message": f"Patient note added for {patient_name}.",
+            }
+        ).execute()
+    except HTTPException as exc:
+        if "invalid input value for enum activity_event_type" not in str(exc.detail).lower():
+            raise

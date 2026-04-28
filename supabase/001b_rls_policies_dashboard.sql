@@ -23,6 +23,7 @@ $$;
 
 alter table public.profiles enable row level security;
 alter table public.patients enable row level security;
+alter table public.patient_notes enable row level security;
 alter table public.equipment enable row level security;
 alter table public.assignments enable row level security;
 alter table public.returns enable row level security;
@@ -41,6 +42,15 @@ create policy "staff can read patients" on public.patients for select to authent
 
 drop policy if exists "ops manage patients" on public.patients;
 create policy "ops manage patients" on public.patients for all to authenticated using (public.has_role(array['admin','dispatcher']::public.app_role[])) with check (public.has_role(array['admin','dispatcher']::public.app_role[]));
+
+drop policy if exists "staff can read patient notes" on public.patient_notes;
+create policy "staff can read patient notes" on public.patient_notes for select to authenticated using (public.current_user_role() is not null);
+
+drop policy if exists "staff can create patient notes" on public.patient_notes;
+create policy "staff can create patient notes" on public.patient_notes for insert to authenticated with check (public.current_user_role() is not null);
+
+drop policy if exists "admins can manage patient notes" on public.patient_notes;
+create policy "admins can manage patient notes" on public.patient_notes for all to authenticated using (public.has_role(array['admin']::public.app_role[])) with check (public.has_role(array['admin']::public.app_role[]));
 
 drop policy if exists "staff can read equipment" on public.equipment;
 create policy "staff can read equipment" on public.equipment for select to authenticated using (public.current_user_role() is not null);

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowRight, Download, ExternalLink, History, Loader2, MapPin, Plus, Printer, Route, Trash2, X } from "lucide-react";
+import { ArrowRight, Download, ExternalLink, History, Loader2, MapPin, MessageSquarePlus, Plus, Printer, Route, Trash2, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
@@ -18,7 +18,7 @@ import { downloadCsv } from "@/lib/export";
 import { ticketDisplayNumber } from "@/lib/tickets";
 import { currency, humanize, pluralize } from "@/lib/utils";
 import { floridaRegions } from "@/types/domain";
-import type { ActivityLog, Assignment, Equipment, EquipmentCostEvent, EquipmentDetailData, EquipmentLocationType, EquipmentMovement, EquipmentMovementType, FloridaRegion, Patient, PatientDetailData, PreventiveMaintenanceTask, ReturnRecord, ServiceTicket } from "@/types/domain";
+import type { ActivityLog, Assignment, Equipment, EquipmentCostEvent, EquipmentDetailData, EquipmentLocationType, EquipmentMovement, EquipmentMovementType, FloridaRegion, Patient, PatientDetailData, PatientNote, PreventiveMaintenanceTask, ReturnRecord, ServiceTicket } from "@/types/domain";
 import { ReturnInspectionChecklist, ReturnStatusControl } from "@/features/workflows/workflow-forms";
 
 export function AssignedList({ refreshKey = 0 }: { refreshKey?: number }) {
@@ -940,6 +940,18 @@ export function PatientDetail({ id }: { id: string }) {
     }
   }
 
+  async function addPatientNote(body: string) {
+    if (!detail) return;
+    try {
+      const note = await apiSend<PatientNote>(`/patients/${detail.patient.id}/notes`, "POST", { body });
+      setDetail((current) => current ? { ...current, patient_notes: [note, ...(current.patient_notes ?? [])] } : current);
+      refreshDetail();
+      toast({ kind: "success", title: "Patient note added", description: detail.patient.full_name });
+    } catch (reason) {
+      toast({ kind: "error", title: "Could not add note", description: reason instanceof Error ? reason.message : "Please try again." });
+    }
+  }
+
   if (error) return <LoadError message={error} />;
   if (!detail) return <DetailSkeleton />;
   const address = patientAddress(detail.patient);
@@ -959,9 +971,6 @@ export function PatientDetail({ id }: { id: string }) {
               <Detail label="Address" value={address || "No address recorded"} />
             </div>
             <Detail label="Last Updated" value={new Date(detail.patient.updated_at).toLocaleString()} />
-            <div className="md:col-span-3">
-              <Detail label="Notes" value={detail.patient.notes || "No patient notes recorded"} />
-            </div>
           </CardContent>
         </Card>
         <PatientProfileEditor
@@ -969,6 +978,9 @@ export function PatientDetail({ id }: { id: string }) {
           patient={detail.patient}
           onSave={savePatientProfile}
         />
+        <div className="xl:col-span-2">
+          <PatientNotesPanel notes={detail.patient_notes ?? []} onAddNote={addPatientNote} />
+        </div>
         <HistoryCard title="Assignment History" items={detail.assignments} empty="No assignment history loaded." />
         <HistoryCard title="Return History" items={detail.returns} empty="No return history loaded." />
         <HistoryCard title="Service Ticket History" items={detail.service_tickets} empty="No service tickets loaded." />
@@ -1001,7 +1013,6 @@ type PatientProfileFormValues = {
   city: string | null;
   state: string;
   postal_code: string | null;
-  notes: string | null;
 };
 
 function PatientProfileEditor({ patient, onSave }: { patient: Patient; onSave: (values: PatientProfileFormValues) => Promise<void> }) {
@@ -1018,8 +1029,7 @@ function PatientProfileEditor({ patient, onSave }: { patient: Patient; onSave: (
         address_line2: values.address_line2?.trim() || null,
         city: values.city?.trim() || null,
         state: values.state.trim() || "FL",
-        postal_code: values.postal_code?.trim() || null,
-        notes: values.notes?.trim() || null
+        postal_code: values.postal_code?.trim() || null
       });
     } finally {
       setIsSaving(false);
@@ -1045,7 +1055,6 @@ function PatientProfileEditor({ patient, onSave }: { patient: Patient; onSave: (
             <Input value={values.state} onChange={(event) => setValues((current) => ({ ...current, state: event.target.value }))} placeholder="State" />
             <Input value={values.postal_code ?? ""} onChange={(event) => setValues((current) => ({ ...current, postal_code: event.target.value }))} placeholder="ZIP" />
           </div>
-          <Textarea value={values.notes ?? ""} onChange={(event) => setValues((current) => ({ ...current, notes: event.target.value }))} placeholder="Patient notes" />
           <Button type="submit" disabled={isSaving || values.full_name.trim().length < 2 || values.date_of_birth.length < 4}>
             {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <MapPin className="h-4 w-4" />}
             Save Profile
@@ -1053,6 +1062,70 @@ function PatientProfileEditor({ patient, onSave }: { patient: Patient; onSave: (
         </form>
       </CardContent>
     </Card>
+  );
+}
+
+function PatientNotesPanel({ notes, onAddNote }: { notes: PatientNote[]; onAddNote: (body: string) => Promise<void> }) {
+  const [body, setBody] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
+
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const trimmed = body.trim();
+    if (trimmed.length < 2) return;
+    setIsSaving(true);
+    try {
+      await onAddNote(trimmed);
+      setBody("");
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between gap-3">
+          <CardTitle>Patient Notes</CardTitle>
+          <Badge>{notes.length}</Badge>
+        </div>
+      </CardHeader>
+      <CardContent className="grid gap-4 lg:grid-cols-[360px_1fr]">
+        <form className="space-y-3" onSubmit={submit}>
+          <Textarea
+            value={body}
+            onChange={(event) => setBody(event.target.value)}
+            placeholder="Add a patient note"
+            className="min-h-32"
+          />
+          <Button type="submit" disabled={isSaving || body.trim().length < 2}>
+            {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <MessageSquarePlus className="h-4 w-4" />}
+            Add Note
+          </Button>
+        </form>
+        <div className="space-y-3">
+          {notes.length ? notes.map((note) => <PatientNoteCard key={note.id} note={note} />) : (
+            <EmptyState message="No patient notes recorded." />
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function PatientNoteCard({ note }: { note: PatientNote }) {
+  const staffName = note.profiles?.full_name ?? "Unknown staff member";
+  const staffRole = note.profiles?.role ? humanize(note.profiles.role) : null;
+
+  return (
+    <div className="rounded-md border border-border p-3 text-sm">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="font-medium">{staffName}</div>
+        <div className="text-xs text-muted-foreground">{new Date(note.created_at).toLocaleString()}</div>
+      </div>
+      {staffRole ? <div className="mt-0.5 text-xs text-muted-foreground">{staffRole}</div> : null}
+      <div className="mt-3 whitespace-pre-wrap leading-relaxed">{note.body}</div>
+    </div>
   );
 }
 
@@ -1147,8 +1220,7 @@ function patientToFormValues(patient: Patient): PatientProfileFormValues {
     address_line2: patient.address_line2 ?? "",
     city: patient.city ?? "",
     state: patient.state ?? "FL",
-    postal_code: patient.postal_code ?? "",
-    notes: patient.notes ?? ""
+    postal_code: patient.postal_code ?? ""
   };
 }
 

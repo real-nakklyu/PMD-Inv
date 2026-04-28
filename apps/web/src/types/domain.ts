@@ -71,6 +71,16 @@ export type Patient = {
   updated_at: string;
 };
 
+export type PatientNote = {
+  id: string;
+  patient_id: string;
+  body: string;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+  profiles?: Pick<Profile, "id" | "full_name" | "role"> | null;
+};
+
 export type Assignment = {
   id: string;
   equipment_id: string;
@@ -319,6 +329,7 @@ export type PatientDetailData = {
   returns: Array<ReturnRecord & { equipment?: Pick<Equipment, "serial_number" | "make" | "model" | "equipment_type" | "status" | "region"> }>;
   service_tickets: Array<ServiceTicket & { equipment?: Pick<Equipment, "serial_number" | "make" | "model" | "equipment_type" | "status" | "region"> }>;
   activity: ActivityLog[];
+  patient_notes: PatientNote[];
 };
 
 export type ReturnInspection = {
