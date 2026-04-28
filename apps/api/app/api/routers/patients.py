@@ -1,7 +1,7 @@
+from datetime import datetime, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi import status as http_status
 
 from app.core.auth import AuthUser, get_current_user, require_roles
 from app.db.supabase import get_supabase
@@ -154,9 +154,81 @@ def update_patient(
     return updated
 
 
-@router.delete("/{patient_id}", status_code=http_status.HTTP_204_NO_CONTENT)
-def delete_patient(patient_id: str, _: Annotated[AuthUser, Depends(require_roles("admin"))]):
-    PatientRepository(get_supabase()).delete(patient_id)
+@router.delete("/{patient_id}")
+def delete_patient(patient_id: str, user: Annotated[AuthUser, Depends(require_roles("admin"))]):
+    client = get_supabase()
+    repo = PatientRepository(client)
+    patient = repo.get(patient_id)
+    dependency_counts = _patient_dependency_counts(client, patient_id)
+
+    if any(dependency_counts.values()):
+        _archive_patient(client, repo, patient, user.id)
+        return {
+            "action": "archived",
+            "message": "Patient has workflow history, so they were archived instead of permanently deleted.",
+        }
+
+    try:
+        repo.delete(patient_id)
+    except HTTPException as exc:
+        if "foreign key" not in str(exc.detail).lower():
+            raise
+        _archive_patient(client, repo, patient, user.id)
+        return {
+            "action": "archived",
+            "message": "Patient was archived because related records still reference them.",
+        }
+
+    return {"action": "deleted", "message": "Patient permanently deleted."}
+
+
+PATIENT_DEPENDENCY_TABLES = (
+    "assignments",
+    "returns",
+    "service_tickets",
+    "delivery_setup_checklists",
+    "equipment_movements",
+    "operational_appointments",
+    "handoff_notes",
+    "patient_notes",
+    "activity_logs",
+)
+
+
+def _patient_dependency_counts(client, patient_id: str) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for table_name in PATIENT_DEPENDENCY_TABLES:
+        try:
+            response = (
+                client.table(table_name)
+                .select("id", count="exact", head=True)
+                .eq("patient_id", patient_id)
+                .execute()
+            )
+        except HTTPException as exc:
+            detail = str(exc.detail).lower()
+            if "does not exist" in detail or "schema cache" in detail:
+                counts[table_name] = 0
+                continue
+            raise
+        counts[table_name] = response.count or 0
+    return counts
+
+
+def _archive_patient(client, repo: PatientRepository, patient: dict, actor_id: str) -> dict:
+    archived_at = datetime.now(timezone.utc).isoformat()
+    archived = repo.update(patient["id"], {"archived_at": archived_at})
+    log_change_activity(
+        client,
+        event_type="patient_edited",
+        actor_id=actor_id,
+        patient_id=patient["id"],
+        before=patient,
+        after=archived,
+        fields=["archived_at"],
+        message=f"Patient {patient['full_name']} archived.",
+    )
+    return archived
 
 
 def _patient_notes_query(client, patient_id: str):

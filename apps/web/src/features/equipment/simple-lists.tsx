@@ -311,8 +311,13 @@ export function PatientsList({ refreshKey = 0 }: { refreshKey?: number }) {
   }, [refreshKey]);
   async function deletePatient(item: Patient) {
     try {
-      await apiSend(`/patients/${item.id}`, "DELETE");
-      toast({ kind: "success", title: "Patient deleted", description: item.full_name });
+      const result = await apiSend<{ action: "deleted" | "archived"; message: string }>(`/patients/${item.id}`, "DELETE");
+      toast({
+        kind: "success",
+        title: result.action === "archived" ? "Patient archived" : "Patient deleted",
+        description: result.action === "archived" ? `${item.full_name} was removed from active patients.` : item.full_name
+      });
+      setError(null);
       setPendingDelete(null);
       refresh();
     } catch (reason) {
@@ -350,7 +355,7 @@ export function PatientsList({ refreshKey = 0 }: { refreshKey?: number }) {
         <ConfirmDialog
           open={Boolean(pendingDelete)}
           title="Delete patient?"
-          description={`Are you sure you want to delete ${pendingDelete?.full_name ?? "this patient"}? This only works when no workflow history depends on them.`}
+          description={`Are you sure you want to delete ${pendingDelete?.full_name ?? "this patient"}? If workflow history references them, they will be archived so records stay intact.`}
           confirmLabel="Delete patient"
           onCancel={() => setPendingDelete(null)}
           onConfirm={() => pendingDelete ? deletePatient(pendingDelete) : undefined}
