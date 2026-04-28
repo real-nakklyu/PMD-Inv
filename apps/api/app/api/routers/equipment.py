@@ -60,7 +60,13 @@ def create_equipment(payload: EquipmentCreate, user: Annotated[AuthUser, Depends
     repo = EquipmentRepository(get_supabase())
     repo.ensure_serial_available(payload.serial_number)
     record = payload.model_dump(mode="json")
-    return repo.create({**record, "created_by": user.id})
+    try:
+        return repo.create({**record, "created_by": user.id})
+    except HTTPException as exc:
+        if "equipment_serial_number_unique_idx" not in str(exc.detail):
+            raise
+        repo.ensure_serial_available(payload.serial_number)
+        raise
 
 
 @router.get("/{equipment_id}/detail")

@@ -25,6 +25,7 @@ export function formatApiErrorBody(body: string, status: number): string {
     const parsed = JSON.parse(body) as { detail?: unknown; message?: unknown };
     const detail = parsed.detail ?? parsed.message;
     if (typeof detail === "string") return detail;
+    if (detail && typeof detail === "object" && "message" in detail) return String(detail.message);
     if (Array.isArray(detail)) {
       return detail
         .map((item) => {

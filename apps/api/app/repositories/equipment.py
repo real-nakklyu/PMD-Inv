@@ -58,15 +58,38 @@ class EquipmentRepository(SupabaseRepository):
         response = query.order("created_at", desc=True).range(offset, offset + limit - 1).execute()
         return {"items": response.data or [], "total": response.count or 0, "limit": limit, "offset": offset}
 
-    def ensure_serial_available(self, serial_number: str, *, exclude_id: str | None = None) -> None:
-        query = self.table.select("id").ilike("serial_number", serial_number).is_("archived_at", "null")
+    def find_active_by_serial(
+        self,
+        serial_number: str,
+        *,
+        exclude_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        query = (
+            self.table.select("id,serial_number,make,model,equipment_type,status,region")
+            .ilike("serial_number", serial_number.strip())
+            .is_("archived_at", "null")
+        )
         if exclude_id:
             query = query.neq("id", exclude_id)
         response = query.limit(1).execute()
-        if response.data:
+        return response.data[0] if response.data else None
+
+    def ensure_serial_available(self, serial_number: str, *, exclude_id: str | None = None) -> None:
+        existing = self.find_active_by_serial(serial_number, exclude_id=exclude_id)
+        if existing:
+            serial = existing.get("serial_number") or serial_number.strip()
+            label = f"{serial} - {existing.get('make', '')} {existing.get('model', '')}".strip()
+            message = f"Serial number {serial} already exists in inventory."
+            detail = {
+                "code": "duplicate_equipment_serial",
+                "message": message,
+                "equipment": existing,
+                "equipment_path": f"/equipment/{existing['id']}",
+                "label": label,
+            }
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail="An equipment record with this serial number already exists.",
+                detail=detail,
             )
 
     def get_active_assignment(self, equipment_id: str) -> dict[str, Any] | None:

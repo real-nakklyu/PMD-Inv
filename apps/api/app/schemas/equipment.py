@@ -2,7 +2,7 @@ from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.schemas.common import EquipmentStatus, EquipmentType, FloridaRegion
 
@@ -17,6 +17,11 @@ class EquipmentCreate(BaseModel):
     region: FloridaRegion
     notes: str | None = Field(default=None, max_length=2000)
 
+    @field_validator("serial_number", mode="before")
+    @classmethod
+    def normalize_serial_number(cls, value: str) -> str:
+        return value.strip() if isinstance(value, str) else value
+
 
 class EquipmentUpdate(BaseModel):
     make: str | None = Field(default=None, min_length=2, max_length=80)
@@ -26,6 +31,11 @@ class EquipmentUpdate(BaseModel):
     status: EquipmentStatus | None = None
     region: FloridaRegion | None = None
     notes: str | None = Field(default=None, max_length=2000)
+
+    @field_validator("serial_number", mode="before")
+    @classmethod
+    def normalize_serial_number(cls, value: str | None) -> str | None:
+        return value.strip() if isinstance(value, str) else value
 
 
 class EquipmentOut(BaseModel):
