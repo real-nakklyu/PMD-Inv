@@ -6,7 +6,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.core.auth import AuthUser, get_current_user
 from app.db.supabase import get_supabase
-from app.schemas.messages import MessageAttachmentCreate, MessageCreate, MessageThreadCreate
+from app.schemas.messages import (
+    MessageAttachmentCreate,
+    MessageCreate,
+    MessageThreadCreate,
+    MessageThreadMembersAdd,
+)
 
 router = APIRouter(prefix="/messages", tags=["messages"])
 
@@ -103,6 +108,55 @@ def delete_thread(thread_id: str, user: Annotated[AuthUser, Depends(get_current_
     _ensure_thread_member(client, thread_id, user.id)
     client.table("message_thread_members").update({"deleted_at": datetime.now(UTC).isoformat()}).eq("thread_id", thread_id).eq("user_id", user.id).execute()
     return {"ok": True}
+
+
+@router.post("/threads/{thread_id}/members", status_code=201)
+def add_thread_members(
+    thread_id: str,
+    payload: MessageThreadMembersAdd,
+    user: Annotated[AuthUser, Depends(get_current_user)],
+) -> dict[str, Any]:
+    client = get_supabase()
+    _ensure_thread_member(client, thread_id, user.id)
+    thread = client.table("message_threads").select("*").eq("id", thread_id).single().execute().data
+    if not thread:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found.")
+    if thread["thread_type"] != "group":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Staff can only be added to group conversations.")
+
+    member_ids = list(dict.fromkeys(str(member_id) for member_id in payload.member_ids))
+    profiles = _profiles_by_id(client, member_ids)
+    missing = [member_id for member_id in member_ids if member_id not in profiles]
+    if missing:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="One or more staff members were not found.")
+
+    memberships = client.table("message_thread_members").select("*").eq("thread_id", thread_id).execute().data or []
+    memberships_by_user = {membership["user_id"]: membership for membership in memberships}
+    active_member_ids = {membership["user_id"] for membership in memberships if not membership.get("deleted_at")}
+    requested_member_ids = [member_id for member_id in member_ids if member_id not in active_member_ids]
+    restore_member_ids = [
+        member_id
+        for member_id in requested_member_ids
+        if memberships_by_user.get(member_id, {}).get("deleted_at")
+    ]
+    insert_member_ids = [member_id for member_id in requested_member_ids if member_id not in memberships_by_user]
+
+    if restore_member_ids:
+        (
+            client.table("message_thread_members")
+            .update({"deleted_at": None, "last_read_at": None})
+            .eq("thread_id", thread_id)
+            .in_("user_id", restore_member_ids)
+            .execute()
+        )
+    if insert_member_ids:
+        client.table("message_thread_members").insert(
+            [{"thread_id": thread_id, "user_id": member_id} for member_id in insert_member_ids]
+        ).execute()
+    if restore_member_ids or insert_member_ids:
+        client.table("message_threads").update({"updated_at": datetime.now(UTC).isoformat()}).eq("id", thread_id).execute()
+
+    return _thread_summary(client, thread_id, user.id) or thread
 
 
 @router.get("/threads/{thread_id}/messages")

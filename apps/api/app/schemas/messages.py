@@ -10,6 +10,10 @@ class MessageThreadCreate(BaseModel):
     thread_type: str = Field(default="direct", pattern="^(direct|group)$")
 
 
+class MessageThreadMembersAdd(BaseModel):
+    member_ids: list[UUID] = Field(min_length=1, max_length=25)
+
+
 class MessageCreate(BaseModel):
     body: str = Field(default="", max_length=4000)
 
@@ -33,4 +37,3 @@ class MessageAttachmentOut(BaseModel):
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
-

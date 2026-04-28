@@ -626,6 +626,7 @@ export type MessageThreadMember = {
   user_id: string;
   last_read_at: string | null;
   created_at: string;
+  deleted_at?: string | null;
   profile: Pick<Profile, "id" | "full_name" | "role"> | null;
 };
 

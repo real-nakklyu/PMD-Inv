@@ -4,6 +4,7 @@ import Link from "next/link";
 import {
   ArrowLeft,
   Bell,
+  Check,
   CheckCheck,
   Clock3,
   FileText,
@@ -15,12 +16,14 @@ import {
   MessageSquareText,
   PanelRight,
   Paperclip,
+  Plus,
   RefreshCw,
   Search,
   Send,
   ShieldCheck,
   Sparkles,
   Trash2,
+  UserPlus,
   Users,
   X
 } from "lucide-react";
@@ -89,12 +92,21 @@ export function MessagesClient() {
   const [messageSearch, setMessageSearch] = useState("");
   const [density, setDensity] = useState<MessageDensity>("comfortable");
   const [showConversationDetails, setShowConversationDetails] = useState(true);
+  const [showGroupComposer, setShowGroupComposer] = useState(false);
+  const [groupTitle, setGroupTitle] = useState("");
+  const [groupStaffSearch, setGroupStaffSearch] = useState("");
+  const [selectedGroupMemberIds, setSelectedGroupMemberIds] = useState<string[]>([]);
+  const [addMemberSearch, setAddMemberSearch] = useState("");
+  const [selectedAddMemberIds, setSelectedAddMemberIds] = useState<string[]>([]);
+  const [showAddMembers, setShowAddMembers] = useState(false);
   const [body, setBody] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [isLoadingThreads, setIsLoadingThreads] = useState(true);
   const [isLoadingStaff, setIsLoadingStaff] = useState(false);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const [isSending, setIsSending] = useState(false);
+  const [isCreatingGroup, setIsCreatingGroup] = useState(false);
+  const [isAddingMembers, setIsAddingMembers] = useState(false);
   const [hasLoadedStaff, setHasLoadedStaff] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [realtimeStatus, setRealtimeStatus] = useState<RealtimeStatus>(messagingWsUrl ? "connecting" : "off");
@@ -112,6 +124,9 @@ export function MessagesClient() {
   const totalUnread = threads.reduce((sum, thread) => sum + thread.unread_count, 0);
   const deferredThreadSearch = useDeferredValue(threadSearch);
   const deferredMessageSearch = useDeferredValue(messageSearch);
+  const deferredStaffSearch = useDeferredValue(staffSearch);
+  const deferredGroupStaffSearch = useDeferredValue(groupStaffSearch);
+  const deferredAddMemberSearch = useDeferredValue(addMemberSearch);
 
   const filteredThreads = useMemo(() => {
     const query = deferredThreadSearch.trim().toLowerCase();
@@ -156,6 +171,28 @@ export function MessagesClient() {
       created_at: message.created_at
     })));
   }, [messages, signedAttachments]);
+
+  const selectedGroupMemberSet = useMemo(() => new Set(selectedGroupMemberIds), [selectedGroupMemberIds]);
+  const selectedGroupMembers = useMemo(() => {
+    return selectedGroupMemberIds
+      .map((memberId) => staff.find((member) => member.id === memberId))
+      .filter((member): member is MessageStaffMember => Boolean(member));
+  }, [selectedGroupMemberIds, staff]);
+
+  const activeThreadMembers = useMemo(() => {
+    return (selectedThread?.members ?? []).filter((member) => !member.deleted_at);
+  }, [selectedThread]);
+
+  const activeThreadMemberIds = useMemo(() => {
+    return new Set(activeThreadMembers.map((member) => member.user_id));
+  }, [activeThreadMembers]);
+
+  const selectedAddMemberSet = useMemo(() => new Set(selectedAddMemberIds), [selectedAddMemberIds]);
+  const selectedAddMembers = useMemo(() => {
+    return selectedAddMemberIds
+      .map((memberId) => staff.find((member) => member.id === memberId))
+      .filter((member): member is MessageStaffMember => Boolean(member));
+  }, [selectedAddMemberIds, staff]);
 
   const scrollToLatestMessage = useCallback((behavior: ScrollBehavior = "auto") => {
     const list = messageListRef.current;
@@ -436,16 +473,94 @@ export function MessagesClient() {
   }, [messages]);
 
   const filteredStaff = useMemo(() => {
-    const query = staffSearch.trim().toLowerCase();
+    const query = deferredStaffSearch.trim().toLowerCase();
     return staff
       .filter((member) => !member.is_me)
       .filter((member) => !query || member.full_name.toLowerCase().includes(query) || member.role.includes(query));
-  }, [staff, staffSearch]);
+  }, [deferredStaffSearch, staff]);
+
+  const filteredGroupStaff = useMemo(() => {
+    const query = deferredGroupStaffSearch.trim().toLowerCase();
+    return staff
+      .filter((member) => !member.is_me)
+      .filter((member) => !query || member.full_name.toLowerCase().includes(query) || member.role.includes(query))
+      .slice(0, 80);
+  }, [deferredGroupStaffSearch, staff]);
+
+  const addableStaff = useMemo(() => {
+    const query = deferredAddMemberSearch.trim().toLowerCase();
+    return staff
+      .filter((member) => !member.is_me && !activeThreadMemberIds.has(member.id))
+      .filter((member) => !query || member.full_name.toLowerCase().includes(query) || member.role.includes(query))
+      .slice(0, 80);
+  }, [activeThreadMemberIds, deferredAddMemberSearch, staff]);
 
   function selectThread(threadId: string | null) {
     setMessageSearch("");
     setNewMessageNotice(0);
+    setShowAddMembers(false);
+    setAddMemberSearch("");
+    setSelectedAddMemberIds([]);
     setSelectedThreadId(threadId);
+  }
+
+  function toggleGroupMember(memberId: string) {
+    setSelectedGroupMemberIds((current) => current.includes(memberId)
+      ? current.filter((id) => id !== memberId)
+      : [...current, memberId]);
+  }
+
+  function toggleAddMember(memberId: string) {
+    setSelectedAddMemberIds((current) => current.includes(memberId)
+      ? current.filter((id) => id !== memberId)
+      : [...current, memberId]);
+  }
+
+  async function createGroupThread() {
+    if (!selectedGroupMemberIds.length) {
+      toast({ kind: "error", title: "Choose staff", description: "Select at least one staff member for the group." });
+      return;
+    }
+    const title = groupTitle.trim() || groupTitleFromMembers(selectedGroupMembers);
+    setIsCreatingGroup(true);
+    try {
+      const created = await startThread(selectedGroupMemberIds, { title, thread_type: "group" });
+      if (created) {
+        setGroupTitle("");
+        setGroupStaffSearch("");
+        setSelectedGroupMemberIds([]);
+        setShowGroupComposer(false);
+      }
+    } finally {
+      setIsCreatingGroup(false);
+    }
+  }
+
+  async function addMembersToSelectedGroup() {
+    if (!selectedThreadId || !selectedThread || selectedThread.thread_type !== "group") return;
+    if (!selectedAddMemberIds.length) {
+      toast({ kind: "error", title: "Choose staff", description: "Select at least one staff member to add." });
+      return;
+    }
+    setIsAddingMembers(true);
+    try {
+      const thread = await apiSend<MessageThread>(`/messages/threads/${selectedThreadId}/members`, "POST", {
+        member_ids: selectedAddMemberIds
+      });
+      updateThreads((current) => current.map((existing) => existing.id === thread.id ? thread : existing));
+      setSelectedAddMemberIds([]);
+      setAddMemberSearch("");
+      setShowAddMembers(false);
+      toast({
+        kind: "success",
+        title: "Group updated",
+        description: `${pluralize(selectedAddMemberIds.length, "staff member")} added to ${threadTitle(thread, currentUser?.id)}.`
+      });
+    } catch (reason) {
+      toast({ kind: "error", title: "Could not add staff", description: reason instanceof Error ? reason.message : "Please try again." });
+    } finally {
+      setIsAddingMembers(false);
+    }
   }
 
   async function startThread(memberIds: string[], options?: { title?: string; thread_type?: "direct" | "group" }) {
@@ -459,8 +574,10 @@ export function MessagesClient() {
       updateThreads((current) => [thread, ...current.filter((existing) => existing.id !== thread.id)]);
       await loadMessages(thread.id, { silent: true, scrollToLatest: true });
       toast({ kind: "success", title: "Conversation ready", description: threadTitle(thread, currentUser?.id) });
+      return true;
     } catch (reason) {
       toast({ kind: "error", title: "Could not start conversation", description: reason instanceof Error ? reason.message : "Please try again." });
+      return false;
     }
   }
 
@@ -659,10 +776,104 @@ export function MessagesClient() {
             ) : null}
           </div>
           <div className="border-t border-border p-4">
-            <div className="mb-2 flex items-center gap-2 text-sm font-semibold">
-              <Users className="h-4 w-4 text-primary" />
-              Start a Chat
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 text-sm font-semibold">
+                <Users className="h-4 w-4 text-primary" />
+                Start a Chat
+              </div>
+              <Button
+                type="button"
+                className="h-8 bg-secondary px-2.5 text-xs text-secondary-foreground hover:bg-secondary/80"
+                onClick={async () => {
+                  if (!hasLoadedStaff) await loadStaff();
+                  setShowGroupComposer((current) => !current);
+                }}
+              >
+                <Plus className="h-3.5 w-3.5" />
+                Group
+              </Button>
             </div>
+            {showGroupComposer ? (
+              <div className="mb-4 rounded-md border border-border bg-muted/20 p-3">
+                <div className="mb-2 flex items-center gap-2 text-sm font-semibold">
+                  <Hash className="h-4 w-4 text-primary" />
+                  New Group
+                </div>
+                <Input
+                  className="mb-2"
+                  placeholder="Group name"
+                  value={groupTitle}
+                  onChange={(event) => setGroupTitle(event.target.value)}
+                />
+                <div className="relative mb-2">
+                  <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    className="pl-9"
+                    placeholder="Find staff to add"
+                    value={groupStaffSearch}
+                    onFocus={() => void loadStaff()}
+                    onChange={(event) => {
+                      setGroupStaffSearch(event.target.value);
+                      if (!hasLoadedStaff) void loadStaff();
+                    }}
+                  />
+                </div>
+                {selectedGroupMembers.length ? (
+                  <div className="mb-2 flex flex-wrap gap-1.5">
+                    {selectedGroupMembers.map((member) => (
+                      <button
+                        key={member.id}
+                        type="button"
+                        className="inline-flex max-w-full items-center gap-1 rounded-md border border-primary/20 bg-primary/10 px-2 py-1 text-xs font-semibold text-primary"
+                        onClick={() => toggleGroupMember(member.id)}
+                      >
+                        <span className="max-w-32 truncate">{member.full_name}</span>
+                        <X className="h-3 w-3" />
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+                <div className="max-h-44 space-y-1 overflow-y-auto">
+                  {isLoadingStaff ? <div className="px-2 py-3 text-sm text-muted-foreground">Loading staff...</div> : null}
+                  {hasLoadedStaff && !isLoadingStaff ? filteredGroupStaff.map((member) => {
+                    const selected = selectedGroupMemberSet.has(member.id);
+                    return (
+                      <button
+                        key={member.id}
+                        type="button"
+                        className={cn(
+                          "flex w-full items-center gap-2 rounded-md border px-2.5 py-2 text-left transition hover:border-primary/40 hover:bg-accent/60",
+                          selected ? "border-primary/35 bg-primary/10" : "border-transparent"
+                        )}
+                        onClick={() => toggleGroupMember(member.id)}
+                      >
+                        <span className={cn("grid h-6 w-6 shrink-0 place-items-center rounded border", selected ? "border-primary bg-primary text-primary-foreground" : "border-border bg-card")}>
+                          {selected ? <Check className="h-3.5 w-3.5" /> : null}
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-sm font-medium">{member.full_name}</span>
+                          <span className="text-xs text-muted-foreground">{humanize(member.role)}</span>
+                        </span>
+                      </button>
+                    );
+                  }) : null}
+                  {hasLoadedStaff && !isLoadingStaff && !filteredGroupStaff.length ? (
+                    <div className="rounded-md border border-dashed border-border px-3 py-4 text-sm text-muted-foreground">
+                      No staff matched that search.
+                    </div>
+                  ) : null}
+                </div>
+                <Button
+                  type="button"
+                  className="mt-3 w-full"
+                  onClick={createGroupThread}
+                  disabled={isCreatingGroup || isLoadingStaff || selectedGroupMemberIds.length === 0}
+                >
+                  {isCreatingGroup ? <Loader2 className="h-4 w-4 animate-spin" /> : <Users className="h-4 w-4" />}
+                  Create group
+                </Button>
+              </div>
+            ) : null}
             <div className="relative mb-3">
               <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
               <Input
@@ -678,20 +889,6 @@ export function MessagesClient() {
                 }}
               />
             </div>
-            <Button
-              type="button"
-              className="mb-3 w-full bg-secondary text-secondary-foreground hover:bg-secondary/80"
-              onClick={async () => {
-                if (!hasLoadedStaff) {
-                  await loadStaff();
-                }
-                await startThread(filteredStaff.map((member) => member.id), { title: "All Staff", thread_type: "group" });
-              }}
-              disabled={isLoadingStaff || !filteredStaff.length}
-            >
-              <Users className="h-4 w-4" />
-              Message all visible staff
-            </Button>
             <div className="max-h-56 space-y-2 overflow-y-auto">
               {!hasLoadedStaff ? (
                 <div className="rounded-md border border-dashed border-border px-3 py-4 text-sm text-muted-foreground">
@@ -744,7 +941,7 @@ export function MessagesClient() {
               <div className="min-w-0">
                 <div className="truncate text-base font-semibold">{selectedThread ? threadTitle(selectedThread, currentUser?.id) : "Select a conversation"}</div>
                 <div className="text-xs text-muted-foreground">
-                  {selectedThread ? `${pluralize(selectedThread.members.length, "member")} / ${messages.length ? `${pluralize(messages.length, "message")}` : "No messages"}` : "Choose a staff member or conversation to begin."}
+                  {selectedThread ? `${pluralize(activeThreadMembers.length, "member")} / ${messages.length ? `${pluralize(messages.length, "message")}` : "No messages"}` : "Choose a staff member or conversation to begin."}
                 </div>
               </div>
             </div>
@@ -796,6 +993,98 @@ export function MessagesClient() {
                   </button>
                 ))}
               </div>
+            </div>
+          ) : null}
+
+          {selectedThread?.thread_type === "group" ? (
+            <div className="border-b border-border bg-card px-3 py-2 sm:px-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2 text-sm font-semibold">
+                  <UserPlus className="h-4 w-4 text-primary" />
+                  Add people to this group
+                </div>
+                <Button
+                  type="button"
+                  className="h-8 bg-secondary px-2.5 text-xs text-secondary-foreground hover:bg-secondary/80"
+                  onClick={async () => {
+                    if (!hasLoadedStaff) await loadStaff();
+                    setShowAddMembers((current) => !current);
+                  }}
+                >
+                  {showAddMembers ? "Close" : "Add staff"}
+                </Button>
+              </div>
+              {showAddMembers ? (
+                <div className="mt-3 rounded-md border border-border bg-muted/20 p-3">
+                  <div className="relative">
+                    <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      className="pl-9"
+                      placeholder="Search available staff"
+                      value={addMemberSearch}
+                      onFocus={() => void loadStaff()}
+                      onChange={(event) => {
+                        setAddMemberSearch(event.target.value);
+                        if (!hasLoadedStaff) void loadStaff();
+                      }}
+                    />
+                  </div>
+                  {selectedAddMembers.length ? (
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {selectedAddMembers.map((member) => (
+                        <button
+                          key={member.id}
+                          type="button"
+                          className="inline-flex max-w-full items-center gap-1 rounded-md border border-primary/20 bg-primary/10 px-2 py-1 text-xs font-semibold text-primary"
+                          onClick={() => toggleAddMember(member.id)}
+                        >
+                          <span className="max-w-36 truncate">{member.full_name}</span>
+                          <X className="h-3 w-3" />
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                  <div className="mt-2 max-h-40 space-y-1 overflow-y-auto">
+                    {isLoadingStaff ? <div className="px-2 py-3 text-sm text-muted-foreground">Loading staff...</div> : null}
+                    {hasLoadedStaff && !isLoadingStaff ? addableStaff.map((member) => {
+                      const selected = selectedAddMemberSet.has(member.id);
+                      return (
+                        <button
+                          key={member.id}
+                          type="button"
+                          className={cn(
+                            "flex w-full items-center gap-2 rounded-md border px-2.5 py-2 text-left transition hover:border-primary/40 hover:bg-accent/60",
+                            selected ? "border-primary/35 bg-primary/10" : "border-transparent"
+                          )}
+                          onClick={() => toggleAddMember(member.id)}
+                        >
+                          <span className={cn("grid h-6 w-6 shrink-0 place-items-center rounded border", selected ? "border-primary bg-primary text-primary-foreground" : "border-border bg-card")}>
+                            {selected ? <Check className="h-3.5 w-3.5" /> : null}
+                          </span>
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-sm font-medium">{member.full_name}</span>
+                            <span className="text-xs text-muted-foreground">{humanize(member.role)}</span>
+                          </span>
+                        </button>
+                      );
+                    }) : null}
+                    {hasLoadedStaff && !isLoadingStaff && !addableStaff.length ? (
+                      <div className="rounded-md border border-dashed border-border px-3 py-4 text-sm text-muted-foreground">
+                        Everyone visible is already in this group.
+                      </div>
+                    ) : null}
+                  </div>
+                  <Button
+                    type="button"
+                    className="mt-3 w-full"
+                    onClick={addMembersToSelectedGroup}
+                    disabled={isAddingMembers || selectedAddMemberIds.length === 0}
+                  >
+                    {isAddingMembers ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserPlus className="h-4 w-4" />}
+                    Add to group
+                  </Button>
+                </div>
+              ) : null}
             </div>
           ) : null}
 
@@ -939,6 +1228,8 @@ function ConversationDetails({
   attachments: Array<SignedAttachment & { sender: string; created_at: string }>;
   onTemplate: (body: string) => void;
 }) {
+  const activeMembers = thread.members.filter((member) => !member.deleted_at);
+
   return (
     <Card className="hidden min-h-0 overflow-hidden 2xl:block">
       <CardContent className="flex h-full min-h-0 flex-col p-0">
@@ -969,7 +1260,7 @@ function ConversationDetails({
               Members
             </div>
             <div className="space-y-2">
-              {thread.members.map((member) => (
+              {activeMembers.map((member) => (
                 <div key={member.id} className="flex items-center gap-2 rounded-md border border-border bg-muted/20 px-3 py-2">
                   <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
                     {(member.profile?.full_name ?? "S").slice(0, 1)}
@@ -1106,6 +1397,13 @@ function threadTitle(thread: MessageThread, currentUserId?: string) {
     .map((member) => member.profile?.full_name)
     .filter(Boolean);
   return names.join(", ") || "Conversation";
+}
+
+function groupTitleFromMembers(members: MessageStaffMember[]) {
+  const names = members.map((member) => member.full_name.split(" ")[0]).filter(Boolean);
+  if (!names.length) return "New Group";
+  if (names.length <= 3) return names.join(", ");
+  return `${names.slice(0, 3).join(", ")} + ${names.length - 3}`;
 }
 
 function threadInitials(thread: MessageThread, currentUserId?: string) {
