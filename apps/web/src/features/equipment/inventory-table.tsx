@@ -19,7 +19,7 @@ import { currency, humanize, pluralize } from "@/lib/utils";
 import { equipmentStatuses, equipmentTypes, floridaRegions, type Equipment, type EquipmentPage } from "@/types/domain";
 
 const column = createColumnHelper<Equipment>();
-const pageSize = 25;
+const pageSize = 10;
 
 export function InventoryTable() {
   const [data, setData] = useState<Equipment[]>([]);
@@ -220,7 +220,7 @@ export function InventoryTable() {
         </div>
 
         <div className="hidden overflow-hidden rounded-lg border border-border md:block">
-          {isLoading ? <TableSkeleton rows={6} columns={6} /> : <div className="overflow-x-auto">
+          {isLoading ? <TableSkeleton rows={10} columns={6} /> : <div className="overflow-x-auto">
             <table className="w-full min-w-[760px] border-collapse text-sm">
               <thead className="bg-muted/65">
                 {table.getHeaderGroups().map((headerGroup) => (
