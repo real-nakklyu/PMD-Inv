@@ -600,6 +600,7 @@ type MovementFormState = {
   to_location_type: EquipmentLocationType;
   to_location_label: string;
   to_region: "" | FloridaRegion;
+  patient_id: string;
   moved_at: string;
   notes: string;
 };
@@ -608,7 +609,27 @@ function MovementLedger({ equipment, movements, movementPrefill, onChanged }: { 
   const { toast } = useToast();
   const [isCreating, setIsCreating] = useState(false);
   const [form, setForm] = useState<MovementFormState>(() => initialMovementForm(equipment, movementPrefill));
+  const [patients, setPatients] = useState<Patient[]>([]);
+  const [patientsError, setPatientsError] = useState<string | null>(null);
+  const [isLoadingPatients, setIsLoadingPatients] = useState(false);
+  const destinationPatients = patients.filter((patient) => !form.to_region || patient.region === form.to_region);
   const movementValidationMessage = getMovementValidationMessage(equipment, form);
+
+  const loadPatients = useCallback(() => {
+    if (patients.length || isLoadingPatients) return;
+    setIsLoadingPatients(true);
+    apiGet<Patient[]>("/patients?limit=200").then((items) => {
+      setPatients(items);
+      setPatientsError(null);
+    }).catch((reason) => {
+      setPatientsError(reason instanceof Error ? reason.message : "Unable to load patients.");
+    }).finally(() => setIsLoadingPatients(false));
+  }, [isLoadingPatients, patients.length]);
+
+  useEffect(() => {
+    if (form.to_location_type !== "patient") return;
+    void Promise.resolve().then(loadPatients);
+  }, [form.to_location_type, loadPatients]);
 
   async function createMovement() {
     if (movementValidationMessage) {
@@ -627,6 +648,7 @@ function MovementLedger({ equipment, movements, movementPrefill, onChanged }: { 
         to_location_type: form.to_location_type,
         to_location_label: nullableText(form.to_location_label),
         to_region: form.to_region || null,
+        patient_id: form.patient_id || null,
         moved_at: form.moved_at ? new Date(form.moved_at).toISOString() : null,
         notes: nullableText(form.notes)
       });
@@ -709,7 +731,15 @@ function MovementLedger({ equipment, movements, movementPrefill, onChanged }: { 
               </label>
               <label className="space-y-1.5 text-sm font-medium">
                 To
-                <Select value={form.to_location_type} onChange={(event) => setForm((current) => ({ ...current, to_location_type: event.target.value as EquipmentLocationType }))}>
+                <Select value={form.to_location_type} onChange={(event) => {
+                  if (event.target.value === "patient") loadPatients();
+                  setForm((current) => ({
+                    ...current,
+                    to_location_type: event.target.value as EquipmentLocationType,
+                    patient_id: event.target.value === "patient" ? current.patient_id : "",
+                    to_location_label: event.target.value === "patient" ? current.to_location_label : current.to_location_label
+                  }));
+                }}>
                   {locationTypes.map((type) => <option key={type} value={type}>{humanize(type)}</option>)}
                 </Select>
               </label>
@@ -728,7 +758,16 @@ function MovementLedger({ equipment, movements, movementPrefill, onChanged }: { 
               </label>
               <label className="space-y-1.5 text-sm font-medium">
                 To region
-                <Select value={form.to_region} onChange={(event) => setForm((current) => ({ ...current, to_region: event.target.value as "" | FloridaRegion }))}>
+                <Select value={form.to_region} onChange={(event) => setForm((current) => {
+                  const nextRegion = event.target.value as "" | FloridaRegion;
+                  const selectedPatient = patients.find((patient) => patient.id === current.patient_id);
+                  return {
+                    ...current,
+                    to_region: nextRegion,
+                    patient_id: selectedPatient && selectedPatient.region === nextRegion ? current.patient_id : "",
+                    to_location_label: selectedPatient && selectedPatient.region === nextRegion ? current.to_location_label : ""
+                  };
+                })}>
                   <option value="">Not set</option>
                   {floridaRegions.map((region) => (
                     <option key={region} value={region} disabled={form.movement_type === "region_transfer" && region === equipment.region}>
@@ -738,6 +777,32 @@ function MovementLedger({ equipment, movements, movementPrefill, onChanged }: { 
                 </Select>
               </label>
             </div>
+            {form.to_location_type === "patient" ? (
+              <label className="space-y-1.5 text-sm font-medium">
+                Patient
+                <Select
+                  value={form.patient_id}
+                  disabled={isLoadingPatients || !form.to_region}
+                  onChange={(event) => setForm((current) => {
+                    const selected = patients.find((patient) => patient.id === event.target.value);
+                    return {
+                      ...current,
+                      patient_id: event.target.value,
+                      to_location_label: selected?.full_name ?? current.to_location_label,
+                      to_region: selected?.region ?? current.to_region
+                    };
+                  })}
+                >
+                  <option value="">{isLoadingPatients ? "Loading patients..." : form.to_region ? "Choose patient" : "Choose destination region first"}</option>
+                  {destinationPatients.map((patient) => (
+                    <option key={patient.id} value={patient.id}>
+                      {patient.full_name} / {patient.region}
+                    </option>
+                  ))}
+                </Select>
+                {patientsError ? <span className="block text-xs font-normal text-red-600 dark:text-red-300">{patientsError}</span> : null}
+              </label>
+            ) : null}
             {movementValidationMessage ? (
               <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-950 dark:border-amber-800 dark:bg-amber-950/45 dark:text-amber-100">
                 {movementValidationMessage}
@@ -770,6 +835,7 @@ function initialMovementForm(equipment: Equipment, prefillQuery = ""): MovementF
     to_location_type: equipment.status === "assigned" ? "patient" : equipment.status === "in_repair" ? "repair" : "warehouse",
     to_location_label: "",
     to_region: equipment.region,
+    patient_id: "",
     moved_at: toDatetimeLocal(new Date()),
     notes: ""
   };
@@ -778,6 +844,7 @@ function initialMovementForm(equipment: Equipment, prefillQuery = ""): MovementF
   const toLocationType = params.get("to_location_type");
   const fromRegion = params.get("from_region");
   const toRegion = params.get("to_region");
+  const patientId = params.get("patient_id");
   if (isMovementType(movementType)) form.movement_type = movementType;
   if (isLocationType(fromLocationType)) form.from_location_type = fromLocationType;
   if (isLocationType(toLocationType)) form.to_location_type = toLocationType;
@@ -785,6 +852,7 @@ function initialMovementForm(equipment: Equipment, prefillQuery = ""): MovementF
   if (isFloridaRegion(toRegion)) form.to_region = toRegion;
   form.from_location_label = params.get("from_location_label") ?? form.from_location_label;
   form.to_location_label = params.get("to_location_label") ?? form.to_location_label;
+  form.patient_id = patientId ?? "";
   form.notes = params.get("notes") ?? form.notes;
   return form;
 }
@@ -804,6 +872,11 @@ function getMovementValidationMessage(equipment: Equipment, form: MovementFormSt
 
   if (form.movement_type === "region_transfer" && (!form.to_region || form.to_region === equipment.region)) {
     return `Choose a destination region different from ${equipment.region}.`;
+  }
+
+  if (form.to_location_type === "patient") {
+    if (!form.to_region) return "Choose the destination region before moving this unit to a patient.";
+    if (!form.patient_id) return "Choose the patient receiving this equipment.";
   }
 
   if (

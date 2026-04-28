@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 from typing import Any
 
-from fastapi import HTTPException
+from fastapi import HTTPException, status
 
 from app.db.supabase import SupabaseRestClient
 
@@ -16,11 +16,14 @@ def record_equipment_movement(
 ) -> dict[str, Any] | None:
     equipment_before = client.table("equipment").select("id,region,status,assigned_at").eq("id", payload["equipment_id"]).single().execute().data
     _validate_movement_against_equipment(payload, equipment_before)
+    destination_patient = _validate_patient_destination(client, payload)
     data = {
         **payload,
         "created_by": actor_id,
         "moved_at": payload.get("moved_at") or datetime.now(UTC).isoformat(),
     }
+    if destination_patient and not data.get("to_location_label"):
+        data["to_location_label"] = destination_patient["full_name"]
     try:
         movement = client.table("equipment_movements").insert(data).execute().data[0]
     except HTTPException as exc:
@@ -28,11 +31,21 @@ def record_equipment_movement(
             return None
         raise
 
+    assignment = _create_assignment_from_patient_movement(
+        client,
+        movement=movement,
+        patient=destination_patient,
+        actor_id=actor_id,
+    ) if destination_patient else None
+    if assignment:
+        movement["assignment_id"] = assignment["id"]
+        client.table("equipment_movements").update({"assignment_id": assignment["id"]}).eq("id", movement["id"]).execute()
+
     equipment_patch = _equipment_patch_from_movement(movement, equipment_before)
     if equipment_patch:
         client.table("equipment").update(equipment_patch).eq("id", movement["equipment_id"]).execute()
 
-    ended_assignment_ids = _end_assignments_if_moved_out_of_patient(client, movement, equipment_before)
+    ended_assignment_ids = [] if assignment else _end_assignments_if_moved_out_of_patient(client, movement, equipment_before)
 
     try:
         client.table("activity_logs").insert(
@@ -163,6 +176,113 @@ def _validate_movement_against_equipment(movement: dict[str, Any], equipment_bef
             status_code=409,
             detail=f"This unit is already in {current_region}. Choose a different destination.",
         )
+
+
+def _validate_patient_destination(client: SupabaseRestClient, movement: dict[str, Any]) -> dict[str, Any] | None:
+    if movement.get("to_location_type") != "patient":
+        return None
+
+    patient_id = movement.get("patient_id")
+    if not patient_id:
+        raise HTTPException(
+            status_code=422,
+            detail="Choose the patient receiving this equipment.",
+        )
+
+    to_region = movement.get("to_region")
+    if not to_region:
+        raise HTTPException(
+            status_code=422,
+            detail="Choose the destination region before assigning to a patient.",
+        )
+
+    patient = client.table("patients").select("id,full_name,region").eq("id", patient_id).single().execute().data
+    if not patient:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Patient not found.")
+
+    if patient["region"] != to_region:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"{patient['full_name']} is in {patient['region']}. Choose a patient in {to_region} or move to {patient['region']}.",
+        )
+
+    return patient
+
+
+def _create_assignment_from_patient_movement(
+    client: SupabaseRestClient,
+    *,
+    movement: dict[str, Any],
+    patient: dict[str, Any],
+    actor_id: str,
+) -> dict[str, Any]:
+    active_equipment_assignments = (
+        client.table("assignments")
+        .select("id,patient_id,equipment_id,status")
+        .eq("equipment_id", movement["equipment_id"])
+        .in_("status", ["active", "return_in_progress"])
+        .execute()
+        .data
+        or []
+    )
+    same_patient_assignment = next(
+        (assignment for assignment in active_equipment_assignments if assignment["patient_id"] == patient["id"]),
+        None,
+    )
+    if same_patient_assignment:
+        return same_patient_assignment
+    if active_equipment_assignments:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This equipment already has an active patient assignment. Move it out of the current patient first.",
+        )
+
+    active_patient_assignments = (
+        client.table("assignments")
+        .select("id,equipment_id")
+        .eq("patient_id", patient["id"])
+        .in_("status", ["active", "return_in_progress"])
+        .execute()
+        .data
+        or []
+    )
+    other_patient_assignment = next(
+        (assignment for assignment in active_patient_assignments if assignment["equipment_id"] != movement["equipment_id"]),
+        None,
+    )
+    if other_patient_assignment:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This patient already has an active equipment assignment.",
+        )
+
+    assignment = (
+        client.table("assignments")
+        .insert(
+            {
+                "equipment_id": movement["equipment_id"],
+                "patient_id": patient["id"],
+                "region": patient["region"],
+                "status": "active",
+                "assigned_at": movement["moved_at"],
+                "notes": movement.get("notes"),
+                "created_by": actor_id,
+            }
+        )
+        .execute()
+        .data[0]
+    )
+    client.table("activity_logs").insert(
+        {
+            "event_type": "patient_assigned",
+            "actor_id": actor_id,
+            "equipment_id": movement["equipment_id"],
+            "patient_id": patient["id"],
+            "assignment_id": assignment["id"],
+            "message": "Equipment assigned to patient from movement ledger.",
+        }
+    ).execute()
+    return assignment
 
 
 def _status_from_movement(movement: dict[str, Any]) -> str | None:
