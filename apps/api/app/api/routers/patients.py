@@ -25,7 +25,12 @@ def list_patients(
     if search:
         term = search.replace(",", " ").strip()
         matching_regions = [region for region in florida_regions if term.lower() in region.lower()]
-        expressions = [f"full_name.ilike.*{term}*"]
+        expressions = [
+            f"full_name.ilike.*{term}*",
+            f"address_line1.ilike.*{term}*",
+            f"city.ilike.*{term}*",
+            f"postal_code.ilike.*{term}*",
+        ]
         if matching_regions:
             expressions.extend([f"region.eq.{region}" for region in matching_regions])
         query = query.or_(",".join(expressions))

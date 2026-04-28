@@ -95,11 +95,18 @@ create table public.patients (
   full_name text not null,
   date_of_birth date not null,
   region public.florida_region not null,
+  address_line1 text,
+  address_line2 text,
+  city text,
+  state text not null default 'FL',
+  postal_code text,
+  notes text,
   created_by uuid references public.profiles(id),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   archived_at timestamptz,
-  constraint patients_full_name_length check (char_length(trim(full_name)) >= 2)
+  constraint patients_full_name_length check (char_length(trim(full_name)) >= 2),
+  constraint patients_state_length check (char_length(trim(state)) between 2 and 40)
 );
 
 create table public.equipment (

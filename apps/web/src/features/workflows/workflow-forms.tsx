@@ -30,7 +30,13 @@ import {
 const patientSchema = z.object({
   full_name: z.string().min(2),
   date_of_birth: z.string().min(4),
-  region: z.enum(floridaRegions)
+  region: z.enum(floridaRegions),
+  address_line1: z.string().optional(),
+  address_line2: z.string().optional(),
+  city: z.string().optional(),
+  state: z.string().min(2).max(40),
+  postal_code: z.string().optional(),
+  notes: z.string().optional()
 });
 
 export function PatientForm({ onSaved }: { onSaved?: () => void }) {
@@ -38,13 +44,13 @@ export function PatientForm({ onSaved }: { onSaved?: () => void }) {
   const { toast } = useToast();
   const form = useForm<z.infer<typeof patientSchema>>({
     resolver: zodResolver(patientSchema),
-    defaultValues: { full_name: "", date_of_birth: "", region: "Tampa" }
+    defaultValues: { full_name: "", date_of_birth: "", region: "Tampa", address_line1: "", address_line2: "", city: "", state: "FL", postal_code: "", notes: "" }
   });
 
   async function onSubmit(values: z.infer<typeof patientSchema>) {
     setMessage(null);
     try {
-      await apiSend("/patients", "POST", values);
+      await apiSend("/patients", "POST", compactOptionalPatientFields(values));
       form.reset();
       setMessage("Patient created.");
       toast({ kind: "success", title: "Patient created", description: values.full_name });
@@ -68,12 +74,32 @@ export function PatientForm({ onSaved }: { onSaved?: () => void }) {
           <Select defaultValue="Tampa" {...form.register("region")}>
             {floridaRegions.map((region) => <option key={region}>{region}</option>)}
           </Select>
+          <Input placeholder="Street address" {...form.register("address_line1")} />
+          <Input placeholder="Apartment, suite, or unit" {...form.register("address_line2")} />
+          <div className="grid gap-3 sm:grid-cols-[1fr_72px_112px]">
+            <Input placeholder="City" {...form.register("city")} />
+            <Input placeholder="State" {...form.register("state")} />
+            <Input placeholder="ZIP" {...form.register("postal_code")} />
+          </div>
+          <Textarea placeholder="Patient notes" {...form.register("notes")} />
           {message ? <p className="text-xs text-muted-foreground">{message}</p> : null}
           <Button type="submit">Create Patient</Button>
         </form>
       </CardContent>
     </Card>
   );
+}
+
+function compactOptionalPatientFields(values: z.infer<typeof patientSchema>) {
+  return {
+    ...values,
+    address_line1: values.address_line1?.trim() || null,
+    address_line2: values.address_line2?.trim() || null,
+    city: values.city?.trim() || null,
+    state: values.state.trim() || "FL",
+    postal_code: values.postal_code?.trim() || null,
+    notes: values.notes?.trim() || null
+  };
 }
 
 const assignmentSchema = z.object({

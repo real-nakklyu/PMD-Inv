@@ -325,21 +325,28 @@ export function PatientsList({ refreshKey = 0 }: { refreshKey?: number }) {
     <Card>
       <CardContent className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         {error ? <div className="md:col-span-2 xl:col-span-3"><LoadError message={error} /></div> : null}
-        {isLoading ? <div className="md:col-span-2 xl:col-span-3"><ListSkeleton rows={6} /></div> : patients.length ? patients.map((item) => (
-          <div key={item.id} className="rounded-lg border border-border p-3">
-            <div className="flex items-start justify-between gap-2">
-              <Link className="font-medium text-primary hover:underline" href={`/patients/${item.id}`}>{item.full_name}</Link>
-              <Button type="button" className="h-8 w-8 bg-secondary p-0 text-secondary-foreground hover:bg-secondary/80" aria-label="Delete patient" onClick={() => setPendingDelete(item)}>
-                <Trash2 className="h-3.5 w-3.5" />
-              </Button>
+        {isLoading ? <div className="md:col-span-2 xl:col-span-3"><ListSkeleton rows={6} /></div> : patients.length ? patients.map((item) => {
+          const address = patientAddress(item);
+          return (
+            <div key={item.id} className="rounded-lg border border-border p-3">
+              <div className="flex items-start justify-between gap-2">
+                <Link className="font-medium text-primary hover:underline" href={`/patients/${item.id}`}>{item.full_name}</Link>
+                <Button type="button" className="h-8 w-8 bg-secondary p-0 text-secondary-foreground hover:bg-secondary/80" aria-label="Delete patient" onClick={() => setPendingDelete(item)}>
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+              <div className="text-sm text-muted-foreground">DOB {new Date(item.date_of_birth).toLocaleDateString()}</div>
+              <div className="mt-3 flex items-start gap-2 whitespace-pre-wrap text-sm text-muted-foreground">
+                <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
+                <span>{address || "No address recorded"}</span>
+              </div>
+              <div className="mt-3 flex justify-between text-sm">
+                <span>{item.region}</span>
+                <span className="text-muted-foreground">History ready</span>
+              </div>
             </div>
-            <div className="text-sm text-muted-foreground">DOB {new Date(item.date_of_birth).toLocaleDateString()}</div>
-            <div className="mt-3 flex justify-between text-sm">
-              <span>{item.region}</span>
-              <span className="text-muted-foreground">History ready</span>
-            </div>
-          </div>
-        )) : <EmptyState message="No patients loaded." />}
+          );
+        }) : <EmptyState message="No patients loaded." />}
         <ConfirmDialog
           open={Boolean(pendingDelete)}
           title="Delete patient?"
@@ -907,7 +914,9 @@ function CostHistory({ events }: { events: EquipmentCostEvent[] }) {
 export function PatientDetail({ id }: { id: string }) {
   const [detail, setDetail] = useState<PatientDetailData | null>(null);
   const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
+  const [isTimelineOpen, setIsTimelineOpen] = useState(false);
+  const { toast } = useToast();
+  const refreshDetail = useCallback(() => {
     apiGet<PatientDetailData>(`/patients/${id}/detail`).then((data) => {
       setDetail(data);
       setError(null);
@@ -915,48 +924,249 @@ export function PatientDetail({ id }: { id: string }) {
       setError(reason instanceof Error ? reason.message : "Unable to load patient detail.");
     });
   }, [id]);
+  useEffect(() => {
+    refreshDetail();
+  }, [refreshDetail]);
+
+  async function savePatientProfile(values: PatientProfileFormValues) {
+    if (!detail) return;
+    try {
+      const updated = await apiSend<Patient>(`/patients/${detail.patient.id}`, "PATCH", values);
+      setDetail((current) => current ? { ...current, patient: updated } : current);
+      refreshDetail();
+      toast({ kind: "success", title: "Patient updated", description: updated.full_name });
+    } catch (reason) {
+      toast({ kind: "error", title: "Could not update patient", description: reason instanceof Error ? reason.message : "Please try again." });
+    }
+  }
 
   if (error) return <LoadError message={error} />;
   if (!detail) return <DetailSkeleton />;
+  const address = patientAddress(detail.patient);
 
   return (
-    <div className="space-y-5">
-      <Card>
-        <CardHeader>
-          <CardTitle>{detail.patient.full_name}</CardTitle>
-        </CardHeader>
-        <CardContent className="grid gap-4 md:grid-cols-3">
-          <Detail label="Date of Birth" value={new Date(detail.patient.date_of_birth).toLocaleDateString()} />
-          <Detail label="Region" value={detail.patient.region} />
-          <Detail label="Created" value={new Date(detail.patient.created_at).toLocaleString()} />
-        </CardContent>
-      </Card>
-      <HistoryCard title="Assignment History" items={detail.assignments} empty="No assignment history loaded." />
-      <HistoryCard title="Return History" items={detail.returns} empty="No return history loaded." />
-      <HistoryCard title="Service Ticket History" items={detail.service_tickets} empty="No service tickets loaded." />
-      <Card>
-        <CardHeader>
-          <CardTitle>Activity</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {detail.activity.length ? detail.activity.map((item) => (
-            <div key={item.id} className="border-l-2 border-primary pl-3 text-sm">
-              <div>{item.message}</div>
-              <AuditChanges item={item} />
-              <div className="text-xs text-muted-foreground">{new Date(item.created_at).toLocaleString()}</div>
+    <>
+      <div className="grid gap-5 xl:grid-cols-[1fr_380px]">
+        <Card>
+          <CardHeader>
+            <CardTitle>{detail.patient.full_name}</CardTitle>
+          </CardHeader>
+          <CardContent className="grid gap-4 md:grid-cols-3">
+            <Detail label="Date of Birth" value={new Date(detail.patient.date_of_birth).toLocaleDateString()} />
+            <Detail label="Region" value={detail.patient.region} />
+            <Detail label="Created" value={new Date(detail.patient.created_at).toLocaleString()} />
+            <div className="md:col-span-2">
+              <Detail label="Address" value={address || "No address recorded"} />
             </div>
-          )) : <p className="text-sm text-muted-foreground">No activity loaded.</p>}
-        </CardContent>
-      </Card>
+            <Detail label="Last Updated" value={new Date(detail.patient.updated_at).toLocaleString()} />
+            <div className="md:col-span-3">
+              <Detail label="Notes" value={detail.patient.notes || "No patient notes recorded"} />
+            </div>
+          </CardContent>
+        </Card>
+        <PatientProfileEditor
+          key={`${detail.patient.id}-${detail.patient.updated_at}`}
+          patient={detail.patient}
+          onSave={savePatientProfile}
+        />
+        <HistoryCard title="Assignment History" items={detail.assignments} empty="No assignment history loaded." />
+        <HistoryCard title="Return History" items={detail.returns} empty="No return history loaded." />
+        <HistoryCard title="Service Ticket History" items={detail.service_tickets} empty="No service tickets loaded." />
+      </div>
+      <Button
+        type="button"
+        className="fixed bottom-5 right-5 z-40 h-12 rounded-md border border-primary/25 bg-primary px-4 text-primary-foreground shadow-xl shadow-primary/20 hover:bg-primary/90 print:hidden"
+        onClick={() => setIsTimelineOpen(true)}
+      >
+        <History className="h-4 w-4" />
+        Timeline
+        <span className="rounded bg-primary-foreground/20 px-1.5 py-0.5 text-xs">{detail.activity.length}</span>
+      </Button>
+      <PatientTimelineDrawer
+        open={isTimelineOpen}
+        patient={detail.patient}
+        activity={detail.activity}
+        onClose={() => setIsTimelineOpen(false)}
+      />
+    </>
+  );
+}
+
+type PatientProfileFormValues = {
+  full_name: string;
+  date_of_birth: string;
+  region: FloridaRegion;
+  address_line1: string | null;
+  address_line2: string | null;
+  city: string | null;
+  state: string;
+  postal_code: string | null;
+  notes: string | null;
+};
+
+function PatientProfileEditor({ patient, onSave }: { patient: Patient; onSave: (values: PatientProfileFormValues) => Promise<void> }) {
+  const [values, setValues] = useState(() => patientToFormValues(patient));
+  const [isSaving, setIsSaving] = useState(false);
+
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setIsSaving(true);
+    try {
+      await onSave({
+        ...values,
+        address_line1: values.address_line1?.trim() || null,
+        address_line2: values.address_line2?.trim() || null,
+        city: values.city?.trim() || null,
+        state: values.state.trim() || "FL",
+        postal_code: values.postal_code?.trim() || null,
+        notes: values.notes?.trim() || null
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Editable Profile</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <form className="space-y-3" onSubmit={submit}>
+          <Input value={values.full_name} onChange={(event) => setValues((current) => ({ ...current, full_name: event.target.value }))} placeholder="Full name" />
+          <Input type="date" value={values.date_of_birth} onChange={(event) => setValues((current) => ({ ...current, date_of_birth: event.target.value }))} />
+          <Select value={values.region} onChange={(event) => setValues((current) => ({ ...current, region: event.target.value as FloridaRegion }))}>
+            {floridaRegions.map((region) => <option key={region}>{region}</option>)}
+          </Select>
+          <Input value={values.address_line1 ?? ""} onChange={(event) => setValues((current) => ({ ...current, address_line1: event.target.value }))} placeholder="Street address" />
+          <Input value={values.address_line2 ?? ""} onChange={(event) => setValues((current) => ({ ...current, address_line2: event.target.value }))} placeholder="Apartment, suite, or unit" />
+          <div className="grid gap-3 sm:grid-cols-[1fr_72px_112px]">
+            <Input value={values.city ?? ""} onChange={(event) => setValues((current) => ({ ...current, city: event.target.value }))} placeholder="City" />
+            <Input value={values.state} onChange={(event) => setValues((current) => ({ ...current, state: event.target.value }))} placeholder="State" />
+            <Input value={values.postal_code ?? ""} onChange={(event) => setValues((current) => ({ ...current, postal_code: event.target.value }))} placeholder="ZIP" />
+          </div>
+          <Textarea value={values.notes ?? ""} onChange={(event) => setValues((current) => ({ ...current, notes: event.target.value }))} placeholder="Patient notes" />
+          <Button type="submit" disabled={isSaving || values.full_name.trim().length < 2 || values.date_of_birth.length < 4}>
+            {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <MapPin className="h-4 w-4" />}
+            Save Profile
+          </Button>
+        </form>
+      </CardContent>
+    </Card>
+  );
+}
+
+function PatientTimelineDrawer({
+  open,
+  patient,
+  activity,
+  onClose
+}: {
+  open: boolean;
+  patient: Patient;
+  activity: ActivityLog[];
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    if (!open) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") onClose();
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [open, onClose]);
+
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 print:hidden" role="dialog" aria-modal="true" aria-labelledby="patient-timeline-title">
+      <button
+        type="button"
+        className="absolute inset-0 cursor-default bg-slate-950/45 backdrop-blur-sm"
+        aria-label="Close timeline"
+        onClick={onClose}
+      />
+      <aside className="absolute right-0 top-0 flex h-full w-full max-w-[560px] flex-col border-l border-border bg-card shadow-2xl shadow-slate-950/30">
+        <div className="flex items-start justify-between gap-3 border-b border-border px-5 py-4">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 text-primary">
+              <History className="h-4 w-4" />
+              <span className="text-xs font-semibold uppercase tracking-wide">Patient timeline</span>
+            </div>
+            <h2 id="patient-timeline-title" className="mt-2 truncate text-lg font-semibold">{patient.full_name}</h2>
+            <p className="mt-1 text-sm text-muted-foreground">Address changes, profile edits, assignments, returns, service tickets, and audit events.</p>
+          </div>
+          <button
+            type="button"
+            className="grid h-9 w-9 shrink-0 place-items-center rounded-md border border-border bg-muted text-muted-foreground transition hover:bg-background hover:text-foreground"
+            onClick={onClose}
+            aria-label="Close timeline"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+          <div className="space-y-4 text-sm">
+            {activity.length ? activity.map((item) => (
+              <div key={item.id} className="relative border-l-2 border-primary/35 pb-1 pl-4">
+                <span className="absolute -left-[5px] top-1 h-2.5 w-2.5 rounded-full border-2 border-card bg-primary" />
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge>{item.event_type}</Badge>
+                  <span className="text-xs text-muted-foreground">{new Date(item.created_at).toLocaleString()}</span>
+                </div>
+                <div className="mt-2 font-medium">{item.message}</div>
+                <AuditChanges item={item} />
+              </div>
+            )) : (
+              <div className="relative border-l-2 border-primary/35 pl-4">
+                <span className="absolute -left-[5px] top-1 h-2.5 w-2.5 rounded-full border-2 border-card bg-primary" />
+                <div className="font-medium">Patient profile created</div>
+                <div className="text-xs text-muted-foreground">{new Date(patient.created_at).toLocaleString()}</div>
+              </div>
+            )}
+          </div>
+        </div>
+      </aside>
     </div>
   );
+}
+
+function patientToFormValues(patient: Patient): PatientProfileFormValues {
+  return {
+    full_name: patient.full_name,
+    date_of_birth: patient.date_of_birth,
+    region: patient.region,
+    address_line1: patient.address_line1 ?? "",
+    address_line2: patient.address_line2 ?? "",
+    city: patient.city ?? "",
+    state: patient.state ?? "FL",
+    postal_code: patient.postal_code ?? "",
+    notes: patient.notes ?? ""
+  };
+}
+
+function patientAddress(patient: Patient) {
+  const stateAndZip = [patient.state, patient.postal_code].filter(Boolean).join(" ");
+  const locality = [patient.city, stateAndZip].filter(Boolean).join(", ");
+  return [
+    patient.address_line1,
+    patient.address_line2,
+    locality
+  ].filter(Boolean).join("\n");
 }
 
 function Detail({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div>
       <div className="text-xs font-medium uppercase text-muted-foreground">{label}</div>
-      <div className="mt-1 text-sm">{value}</div>
+      <div className="mt-1 whitespace-pre-wrap text-sm">{value}</div>
     </div>
   );
 }

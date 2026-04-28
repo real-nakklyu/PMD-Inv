@@ -60,6 +60,12 @@ export type Patient = {
   full_name: string;
   date_of_birth: string;
   region: FloridaRegion;
+  address_line1: string | null;
+  address_line2: string | null;
+  city: string | null;
+  state: string;
+  postal_code: string | null;
+  notes: string | null;
   archived_at?: string | null;
   created_at: string;
   updated_at: string;
