@@ -125,24 +125,7 @@ def bulk_receive(
             missing.append(serial)
             continue
         before_region = equipment.get("region")
-        client.table("equipment").update(
-            {"status": "available", "region": payload.region, "assigned_at": None}
-        ).eq("id", equipment["id"]).execute()
-        profile = _upsert_profile(
-            client,
-            {
-                "equipment_id": equipment["id"],
-                "region": payload.region,
-                "bin_location": payload.bin_location,
-                "shelf_location": payload.shelf_location,
-                "condition_grade": payload.condition_grade,
-                "readiness_status": payload.readiness_status,
-                "last_received_at": now,
-                "notes": payload.notes,
-                "updated_by": user.id,
-            },
-        )
-        record_equipment_movement(
+        movement = record_equipment_movement(
             client,
             actor_id=user.id,
             tolerate_missing_table=True,
@@ -157,6 +140,24 @@ def bulk_receive(
                 "to_region": payload.region,
                 "moved_at": now,
                 "notes": payload.notes or "Warehouse bulk receiving.",
+            },
+        )
+        if movement is None:
+            client.table("equipment").update(
+                {"status": "available", "region": payload.region, "assigned_at": None}
+            ).eq("id", equipment["id"]).execute()
+        profile = _upsert_profile(
+            client,
+            {
+                "equipment_id": equipment["id"],
+                "region": payload.region,
+                "bin_location": payload.bin_location,
+                "shelf_location": payload.shelf_location,
+                "condition_grade": payload.condition_grade,
+                "readiness_status": payload.readiness_status,
+                "last_received_at": now,
+                "notes": payload.notes,
+                "updated_by": user.id,
             },
         )
         _log_warehouse_activity(

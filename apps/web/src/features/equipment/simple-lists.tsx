@@ -424,7 +424,7 @@ export function EquipmentDetail({ id, movementPrefill = "" }: { id: string; move
             ) : <p className="text-sm text-muted-foreground">This equipment is not currently assigned.</p>}
           </CardContent>
         </Card>
-        <MovementLedger key={`${equipment.id}:${movementPrefill}`} equipment={equipment} movements={detail?.movements ?? []} movementPrefill={movementPrefill} onChanged={refreshDetail} />
+        <MovementLedger key={`${equipment.id}:${equipment.region}:${equipment.status}:${movementPrefill}`} equipment={equipment} movements={detail?.movements ?? []} movementPrefill={movementPrefill} onChanged={refreshDetail} />
         <MaintenanceHistory tasks={detail?.maintenance ?? []} />
         <CostHistory events={detail?.cost_events ?? []} />
         <HistoryCard title="Assignment History" items={detail?.assignments ?? []} empty="No assignment history loaded." />
@@ -601,8 +601,14 @@ function MovementLedger({ equipment, movements, movementPrefill, onChanged }: { 
   const { toast } = useToast();
   const [isCreating, setIsCreating] = useState(false);
   const [form, setForm] = useState<MovementFormState>(() => initialMovementForm(equipment, movementPrefill));
+  const movementValidationMessage = getMovementValidationMessage(equipment, form);
 
   async function createMovement() {
+    if (movementValidationMessage) {
+      toast({ kind: "error", title: "Movement needs correction", description: movementValidationMessage });
+      return;
+    }
+
     setIsCreating(true);
     try {
       await apiSend<EquipmentMovement>("/equipment-movements", "POST", {
@@ -708,25 +714,34 @@ function MovementLedger({ equipment, movements, movementPrefill, onChanged }: { 
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
               <label className="space-y-1.5 text-sm font-medium">
                 From region
-                <Select value={form.from_region} onChange={(event) => setForm((current) => ({ ...current, from_region: event.target.value as "" | FloridaRegion }))}>
-                  <option value="">Not set</option>
+                <Select value={equipment.region} disabled onChange={(event) => setForm((current) => ({ ...current, from_region: event.target.value as "" | FloridaRegion }))}>
                   {floridaRegions.map((region) => <option key={region} value={region}>{region}</option>)}
                 </Select>
+                <span className="block text-xs font-normal text-muted-foreground">Locked to the current inventory region.</span>
               </label>
               <label className="space-y-1.5 text-sm font-medium">
                 To region
                 <Select value={form.to_region} onChange={(event) => setForm((current) => ({ ...current, to_region: event.target.value as "" | FloridaRegion }))}>
                   <option value="">Not set</option>
-                  {floridaRegions.map((region) => <option key={region} value={region}>{region}</option>)}
+                  {floridaRegions.map((region) => (
+                    <option key={region} value={region} disabled={form.movement_type === "region_transfer" && region === equipment.region}>
+                      {region}{form.movement_type === "region_transfer" && region === equipment.region ? " (current)" : ""}
+                    </option>
+                  ))}
                 </Select>
               </label>
             </div>
+            {movementValidationMessage ? (
+              <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-950 dark:border-amber-800 dark:bg-amber-950/45 dark:text-amber-100">
+                {movementValidationMessage}
+              </div>
+            ) : null}
             <label className="space-y-1.5 text-sm font-medium">
               Moved at
               <Input type="datetime-local" value={form.moved_at} onChange={(event) => setForm((current) => ({ ...current, moved_at: event.target.value }))} />
             </label>
             <Textarea className="min-h-24" value={form.notes} placeholder="Notes, handoff context, route detail..." onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))} />
-            <Button type="button" onClick={createMovement} disabled={isCreating}>
+            <Button type="button" onClick={createMovement} disabled={isCreating || Boolean(movementValidationMessage)}>
               {isCreating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
               Record movement
             </Button>
@@ -759,7 +774,7 @@ function initialMovementForm(equipment: Equipment, prefillQuery = ""): MovementF
   if (isMovementType(movementType)) form.movement_type = movementType;
   if (isLocationType(fromLocationType)) form.from_location_type = fromLocationType;
   if (isLocationType(toLocationType)) form.to_location_type = toLocationType;
-  if (isFloridaRegion(fromRegion)) form.from_region = fromRegion;
+  if (isFloridaRegion(fromRegion) && fromRegion === equipment.region) form.from_region = fromRegion;
   if (isFloridaRegion(toRegion)) form.to_region = toRegion;
   form.from_location_label = params.get("from_location_label") ?? form.from_location_label;
   form.to_location_label = params.get("to_location_label") ?? form.to_location_label;
@@ -773,6 +788,26 @@ function currentLocationType(equipment: Equipment): EquipmentLocationType {
   if (equipment.status === "return_in_progress") return "return_in_transit";
   if (equipment.status === "retired") return "retired";
   return "warehouse";
+}
+
+function getMovementValidationMessage(equipment: Equipment, form: MovementFormState) {
+  if (form.from_region && form.from_region !== equipment.region) {
+    return `This unit is currently in ${equipment.region}. The from region must stay ${equipment.region}.`;
+  }
+
+  if (form.movement_type === "region_transfer" && (!form.to_region || form.to_region === equipment.region)) {
+    return `Choose a destination region different from ${equipment.region}.`;
+  }
+
+  if (
+    form.movement_type === "manual_adjustment" &&
+    (!form.to_region || form.to_region === equipment.region) &&
+    form.from_location_type === form.to_location_type
+  ) {
+    return `This unit is already in ${equipment.region} as ${humanize(currentLocationType(equipment))}. Choose a different destination.`;
+  }
+
+  return null;
 }
 
 function isMovementType(value: string | null): value is EquipmentMovementType {

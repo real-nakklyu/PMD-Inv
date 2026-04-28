@@ -15,6 +15,7 @@ def record_equipment_movement(
     tolerate_missing_table: bool = False,
 ) -> dict[str, Any] | None:
     equipment_before = client.table("equipment").select("id,region,status,assigned_at").eq("id", payload["equipment_id"]).single().execute().data
+    _validate_movement_against_equipment(payload, equipment_before)
     data = {
         **payload,
         "created_by": actor_id,
@@ -131,6 +132,37 @@ def _equipment_patch_from_movement(movement: dict[str, Any], equipment_before: d
         patch["assigned_at"] = None
 
     return patch
+
+
+def _validate_movement_against_equipment(movement: dict[str, Any], equipment_before: dict[str, Any] | None) -> None:
+    if not equipment_before:
+        raise HTTPException(status_code=404, detail="Equipment not found.")
+
+    current_region = equipment_before.get("region")
+    from_region = movement.get("from_region")
+    to_region = movement.get("to_region")
+
+    if current_region and from_region and from_region != current_region:
+        raise HTTPException(
+            status_code=409,
+            detail=f"This unit is currently in {current_region}. From region must be {current_region}.",
+        )
+
+    if movement.get("movement_type") == "region_transfer" and (not to_region or to_region == current_region):
+        raise HTTPException(
+            status_code=409,
+            detail=f"This unit is already in {current_region}. Choose a different destination region.",
+        )
+
+    if (
+        movement.get("movement_type") == "manual_adjustment"
+        and (not to_region or to_region == current_region)
+        and movement.get("from_location_type") == movement.get("to_location_type")
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail=f"This unit is already in {current_region}. Choose a different destination.",
+        )
 
 
 def _status_from_movement(movement: dict[str, Any]) -> str | None:

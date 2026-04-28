@@ -2,7 +2,7 @@ import pytest
 from fastapi import HTTPException
 
 from app.api.routers.equipment import _assignment_count_label, _end_active_assignments_for_equipment
-from app.services.movements import _end_assignment_if_moved_out_of_patient, _end_assignments_if_moved_out_of_patient, _equipment_patch_from_movement
+from app.services.movements import _end_assignment_if_moved_out_of_patient, _end_assignments_if_moved_out_of_patient, _equipment_patch_from_movement, _validate_movement_against_equipment
 from app.services.workflows import RETURN_TRANSITIONS, SERVICE_TRANSITIONS, _ensure_assignment_regions_match
 
 
@@ -81,6 +81,70 @@ def test_driver_to_patient_marks_equipment_assigned():
         "status": "assigned",
         "assigned_at": "2026-04-27T12:00:00+00:00",
     }
+
+
+def test_movement_from_region_must_match_current_equipment_region():
+    with pytest.raises(HTTPException) as exc:
+        _validate_movement_against_equipment(
+            {
+                "movement_type": "region_transfer",
+                "from_location_type": "warehouse",
+                "from_region": "Orlando",
+                "to_location_type": "warehouse",
+                "to_region": "Tampa",
+            },
+            {"region": "Tampa", "status": "available", "assigned_at": None},
+        )
+
+    assert exc.value.status_code == 409
+    assert "From region must be Tampa" in exc.value.detail
+
+
+def test_region_transfer_cannot_target_current_region():
+    with pytest.raises(HTTPException) as exc:
+        _validate_movement_against_equipment(
+            {
+                "movement_type": "region_transfer",
+                "from_location_type": "warehouse",
+                "from_region": "Tampa",
+                "to_location_type": "warehouse",
+                "to_region": "Tampa",
+            },
+            {"region": "Tampa", "status": "available", "assigned_at": None},
+        )
+
+    assert exc.value.status_code == 409
+    assert "Choose a different destination region" in exc.value.detail
+
+
+def test_manual_adjustment_cannot_record_same_region_and_location():
+    with pytest.raises(HTTPException) as exc:
+        _validate_movement_against_equipment(
+            {
+                "movement_type": "manual_adjustment",
+                "from_location_type": "warehouse",
+                "from_region": "Tampa",
+                "to_location_type": "warehouse",
+                "to_region": "Tampa",
+            },
+            {"region": "Tampa", "status": "available", "assigned_at": None},
+        )
+
+    assert exc.value.status_code == 409
+    assert "Choose a different destination" in exc.value.detail
+
+
+def test_same_region_driver_to_patient_movement_is_still_allowed():
+    _validate_movement_against_equipment(
+        {
+            "movement_type": "driver_to_patient",
+            "from_location_type": "driver",
+            "from_region": "Tampa",
+            "to_location_type": "patient",
+            "to_region": "Tampa",
+        },
+        {"region": "Tampa", "status": "assigned", "assigned_at": "2026-04-01T10:00:00+00:00"},
+    )
 
 
 def test_archive_equipment_ends_active_assignments():
