@@ -46,6 +46,7 @@ def record_equipment_movement(
         client.table("equipment").update(equipment_patch).eq("id", movement["equipment_id"]).execute()
 
     ended_assignment_ids = [] if assignment else _end_assignments_if_moved_out_of_patient(client, movement, equipment_before)
+    _sync_warehouse_profile_from_movement(client, movement=movement, actor_id=actor_id)
 
     try:
         client.table("activity_logs").insert(
@@ -120,6 +121,82 @@ def maybe_record_delivery_completion_movement(
 def _is_missing_movement_table(exc: HTTPException) -> bool:
     detail = str(exc.detail).lower()
     return "equipment_movements" in detail and ("does not exist" in detail or "schema cache" in detail)
+
+
+def _is_missing_warehouse_table(exc: HTTPException) -> bool:
+    detail = str(exc.detail).lower()
+    return "warehouse_inventory_profiles" in detail and ("does not exist" in detail or "schema cache" in detail)
+
+
+def _sync_warehouse_profile_from_movement(
+    client: SupabaseRestClient,
+    *,
+    movement: dict[str, Any],
+    actor_id: str,
+) -> None:
+    try:
+        if movement.get("to_location_type") == "warehouse":
+            _upsert_warehouse_profile_from_movement(client, movement=movement, actor_id=actor_id)
+        elif movement.get("from_location_type") == "warehouse":
+            (
+                client.table("warehouse_inventory_profiles")
+                .delete()
+                .eq("equipment_id", movement["equipment_id"])
+                .execute()
+            )
+    except HTTPException as exc:
+        if _is_missing_warehouse_table(exc):
+            return
+        raise
+
+
+def _upsert_warehouse_profile_from_movement(
+    client: SupabaseRestClient,
+    *,
+    movement: dict[str, Any],
+    actor_id: str,
+) -> None:
+    region = movement.get("to_region")
+    if not region:
+        return
+
+    existing = (
+        client.table("warehouse_inventory_profiles")
+        .select("*")
+        .eq("equipment_id", movement["equipment_id"])
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    location_label = (movement.get("to_location_label") or "").strip()
+    patch: dict[str, Any] = {
+        "equipment_id": movement["equipment_id"],
+        "region": region,
+        "last_received_at": movement["moved_at"],
+        "updated_by": actor_id,
+    }
+    if location_label and len(location_label) <= 80:
+        patch["bin_location"] = location_label
+    if movement.get("notes"):
+        patch["notes"] = movement["notes"]
+
+    if existing:
+        (
+            client.table("warehouse_inventory_profiles")
+            .update(patch)
+            .eq("equipment_id", movement["equipment_id"])
+            .execute()
+        )
+        return
+
+    client.table("warehouse_inventory_profiles").insert(
+        {
+            **patch,
+            "condition_grade": "good",
+            "readiness_status": "ready",
+        }
+    ).execute()
 
 
 def _movement_message(movement: dict[str, Any]) -> str:
