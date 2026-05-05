@@ -24,41 +24,45 @@
 }
 
 :root {
-  --background: #f6f8fb;
-  --foreground: #111827;
+  color-scheme: light;
+  /* GitHub Primer light tritanopia tokens mapped onto the app theme. */
+  --background: #ffffff;
+  --foreground: #1f2328;
   --card: #ffffff;
-  --card-foreground: #111827;
-  --primary: #0d9488;
+  --card-foreground: #1f2328;
+  --primary: #0969da;
   --primary-foreground: #ffffff;
-  --secondary: #eef3f8;
-  --secondary-foreground: #1f2937;
-  --muted: #f2f5f9;
-  --muted-foreground: #5b6878;
-  --border: #d9e1eb;
-  --input: #c8d3df;
-  --ring: #14b8a6;
-  --sidebar: #fbfcfe;
-  --sidebar-foreground: #1f2937;
-  --sidebar-accent: #e7f6f4;
+  --secondary: #f6f8fa;
+  --secondary-foreground: #1f2328;
+  --muted: #f6f8fa;
+  --muted-foreground: #59636e;
+  --border: #d1d9e0;
+  --input: #d1d9e0;
+  --ring: #0969da;
+  --sidebar: #f6f8fa;
+  --sidebar-foreground: #1f2328;
+  --sidebar-accent: #ddf4ff;
 }
 
 .dark {
-  --background: #0f141a;
-  --foreground: #eef2f7;
-  --card: #171e26;
-  --card-foreground: #f8fafc;
-  --primary: #2dd4bf;
-  --primary-foreground: #042f2e;
-  --secondary: #222b35;
-  --secondary-foreground: #e5e7eb;
-  --muted: #1b232c;
-  --muted-foreground: #b8c4d1;
-  --border: #2f3c4a;
-  --input: #3c4c5e;
-  --ring: #5eead4;
-  --sidebar: #131a21;
-  --sidebar-foreground: #e5e7eb;
-  --sidebar-accent: #1d302f;
+  color-scheme: dark;
+  /* GitHub Primer dark tritanopia tokens mapped onto the app theme. */
+  --background: #0d1117;
+  --foreground: #f0f6fc;
+  --card: #151b23;
+  --card-foreground: #f0f6fc;
+  --primary: #1f6feb;
+  --primary-foreground: #ffffff;
+  --secondary: #212830;
+  --secondary-foreground: #f0f6fc;
+  --muted: #151b23;
+  --muted-foreground: #9198a1;
+  --border: #3d444d;
+  --input: #3d444d;
+  --ring: #1f6feb;
+  --sidebar: #010409;
+  --sidebar-foreground: #f0f6fc;
+  --sidebar-accent: #388bfd1a;
 }
 
 * {
@@ -67,8 +71,7 @@
 
 body {
   min-height: 100vh;
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--background) 94%, white 6%) 0%, var(--background) 28rem);
+  background: var(--background);
   color: var(--foreground);
   font-feature-settings: "cv02", "cv03", "cv04", "cv11";
   -webkit-font-smoothing: antialiased;

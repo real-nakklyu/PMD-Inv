@@ -80,7 +80,7 @@ def create_thread(payload: MessageThreadCreate, user: Annotated[AuthUser, Depend
     if direct_key:
         existing = _find_direct_thread(client, direct_key, member_ids, user.id)
         if existing:
-            client.table("message_thread_members").update({"deleted_at": None}).eq("thread_id", existing["id"]).eq("user_id", user.id).execute()
+            _restore_direct_thread_members(client, existing["id"])
             return _thread_summary(client, existing["id"], user.id) or existing
 
     thread = (
@@ -200,6 +200,7 @@ def create_message(thread_id: str, payload: MessageCreate, user: Annotated[AuthU
         .execute()
         .data[0]
     )
+    _restore_direct_thread_members(client, thread_id)
     client.table("message_threads").update({"updated_at": datetime.now(UTC).isoformat()}).eq("id", thread_id).execute()
     _mark_thread_read(client, thread_id, user.id)
     profile = _profiles_by_id(client, [user.id]).get(user.id)
@@ -301,6 +302,13 @@ def _ensure_thread_member(client: Any, thread_id: str, user_id: str | UUID) -> d
 
 def _mark_thread_read(client: Any, thread_id: str, user_id: str | UUID) -> None:
     client.table("message_thread_members").update({"last_read_at": datetime.now(UTC).isoformat()}).eq("thread_id", thread_id).eq("user_id", str(user_id)).execute()
+
+
+def _restore_direct_thread_members(client: Any, thread_id: str) -> None:
+    thread = client.table("message_threads").select("thread_type").eq("id", thread_id).single().execute().data
+    if not thread or thread.get("thread_type") != "direct":
+        return
+    client.table("message_thread_members").update({"deleted_at": None}).eq("thread_id", thread_id).execute()
 
 
 def _direct_key(member_ids: list[str]) -> str:

@@ -1,11 +1,14 @@
 import { Redirect, Stack } from "expo-router";
+import { useColorScheme } from "react-native";
 
-import { colors } from "@/src/constants/theme";
+import { darkColors, lightColors } from "@/src/constants/theme";
 import { LoadingView } from "@/src/components/loading-view";
 import { useSession } from "@/src/providers/session-provider";
 
 export default function AppLayout() {
+  const systemScheme = useColorScheme();
   const { isLoading, profileMe, session } = useSession();
+  const themeColors = systemScheme === "dark" ? darkColors : lightColors;
 
   if (isLoading) {
     return <LoadingView label="Loading your workspace..." />;
@@ -23,10 +26,10 @@ export default function AppLayout() {
   return (
     <Stack
       screenOptions={{
-        headerStyle: { backgroundColor: colors.surface },
-        headerTintColor: colors.text,
+        headerStyle: { backgroundColor: themeColors.surface },
+        headerTintColor: themeColors.text,
         headerShadowVisible: false,
-        contentStyle: { backgroundColor: colors.background },
+        contentStyle: { backgroundColor: themeColors.background },
       }}
     >
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />

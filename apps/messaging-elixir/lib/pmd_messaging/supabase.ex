@@ -39,6 +39,7 @@ defmodule PmdMessaging.Supabase do
     }
 
     with {:ok, [message | _]} <- rest_insert("messages", payload),
+         :ok <- restore_direct_thread_members(thread_id),
          :ok <- touch_thread(thread_id),
          :ok <- mark_read(thread_id, user["id"]) do
       {:ok,
@@ -47,6 +48,21 @@ defmodule PmdMessaging.Supabase do
          "attachments" => [],
          "is_mine" => false
        })}
+    end
+  end
+
+  defp restore_direct_thread_members(thread_id) do
+    params = %{"select" => "thread_type", "id" => "eq.#{thread_id}", "limit" => "1"}
+
+    with {:ok, [%{"thread_type" => "direct"} | _]} <- rest_get("message_threads", params),
+         {:ok, _memberships} <-
+           rest_patch("message_thread_members", %{"thread_id" => "eq.#{thread_id}"}, %{
+             deleted_at: nil
+           }) do
+      :ok
+    else
+      {:ok, _group_or_missing} -> :ok
+      _error -> :ok
     end
   end
 
