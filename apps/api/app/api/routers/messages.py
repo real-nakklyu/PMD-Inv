@@ -14,6 +14,7 @@ from app.schemas.messages import (
 )
 
 router = APIRouter(prefix="/messages", tags=["messages"])
+MESSAGE_PAGE_SIZE = 100
 
 
 @router.get("/staff")
@@ -163,16 +164,7 @@ def add_thread_members(
 def list_messages(thread_id: str, user: Annotated[AuthUser, Depends(get_current_user)]) -> list[dict[str, Any]]:
     client = get_supabase()
     _ensure_thread_member(client, thread_id, user.id)
-    messages = (
-        client.table("messages")
-        .select("*")
-        .eq("thread_id", thread_id)
-        .order("created_at")
-        .limit(100)
-        .execute()
-        .data
-        or []
-    )
+    messages = _latest_messages_for_thread(client, thread_id)
     sender_ids = list({message["sender_id"] for message in messages})
     profiles = _profiles_by_id(client, sender_ids)
     message_ids = [message["id"] for message in messages]
@@ -283,6 +275,20 @@ def _thread_summary(client: Any, thread_id: str, user_id: str, membership: dict[
         "latest_message": latest[0] if latest else None,
         "unread_count": unread_count,
     }
+
+
+def _latest_messages_for_thread(client: Any, thread_id: str) -> list[dict[str, Any]]:
+    messages = (
+        client.table("messages")
+        .select("*")
+        .eq("thread_id", thread_id)
+        .order("created_at", desc=True)
+        .limit(MESSAGE_PAGE_SIZE)
+        .execute()
+        .data
+        or []
+    )
+    return list(reversed(messages))
 
 
 def _ensure_thread_member(client: Any, thread_id: str, user_id: str | UUID) -> dict[str, Any]:
